@@ -30,6 +30,17 @@ Parameters:
       - Continuous
       - ''
     Description: Enable or disable the continuous provisioning mode
+  HyperPodClusterRole:
+    Type: String
+    Default: ''
+    Description: Hyperpod Cluster Role Arn
+  AutoScalerType:
+    Type: String
+    Default: None
+    AllowedValues:
+      - Karpenter
+      - None
+    Description: The type of autoscaler to use
   EKSClusterName:
     Type: String
     Default: hyperpod-eks-cluster
@@ -221,7 +232,59 @@ Parameters:
     Type: String
     Default: '[]'
     Description: JSON array string containing restricted instance group configurations.
+Conditions:
+  CreateClusterRoleCondition:
+    Fn::And:
+      - Fn::Equals:
+          - Ref: NodeProvisioningMode
+          - Continuous
+      - Fn::Not:
+          - Fn::Equals:
+              - Ref: AutoScalerType
+              - None
+      - Fn::Equals:
+          - Ref: HyperPodClusterRole
+          - ''
 Resources:
+  ClusterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sagemaker.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - eks:DescribeCluster
+                Resource:
+                  - Fn::Sub: arn:aws:eks:${AWS::Region}:${AWS::AccountId}:cluster/${EKSClusterName}
+              - Effect: Allow
+                Action:
+                  - sagemaker:BatchAddClusterNodes
+                  - sagemaker:BatchDeleteClusterNodes
+                Resource:
+                  - Fn::Sub: arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:cluster/*
+          PolicyName:
+            Fn::Sub: ${ResourceNamePrefix}-AutoScaler-Policy
+      RoleName:
+        Fn::Sub: ${ResourceNamePrefix}-ClusterRole
+      Tags:
+        - Key: aws-sagemaker-hyperpod-prerequisite
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-ClusterRole
+    Metadata:
+      aws:cdk:path: HyperPodClusterCfnTemplate/ClusterRole
+    Condition: CreateClusterRoleCondition
   HyperPodClusterCustomResourceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -342,6 +405,15 @@ Resources:
             Ref: OnCreatePath
           CLUSTER_TAGS:
             Ref: Tags
+          CLUSTER_ROLE:
+            Fn::If:
+              - CreateClusterRoleCondition
+              - Fn::GetAtt:
+                  - ClusterRole
+                  - Arn
+              - Ref: HyperPodClusterRole
+          AUTOSCALER_TYPE:
+            Ref: AutoScalerType
           INSTANCE_GROUP_SETTINGS1:
             Ref: InstanceGroupSettings1
           RIG_SETTINGS1:

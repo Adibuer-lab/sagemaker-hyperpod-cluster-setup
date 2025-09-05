@@ -9,6 +9,9 @@ Metadata:
           - Stage
           - CustomBucketName
           - NodeRecovery
+          - NodeProvisioningMode
+          - HyperPodClusterRole
+          - AutoScalerType
           - Tags
           - EnableHPInferenceFeature
       - Label:
@@ -127,6 +130,12 @@ Metadata:
         default: Custom S3 Bucket Name
       NodeRecovery:
         default: Instance Recovery
+      NodeProvisioningMode:
+        default: Instance Provisioning Mode
+      HyperPodClusterRole:
+        default: HyperPod Cluster Role ARN
+      AutoScalerType:
+        default: Autoscaler
       Tags:
         default: Resource Tags
       CreateVPCStack:
@@ -298,7 +307,7 @@ Parameters:
   HelmOperators:
     Type: String
     Default: >-
-      mlflow.enabled=true,trainingOperators.enabled=true,storage.enabled=true,cluster-role-and-bindings.enabled=true,namespaced-role-and-bindings.enable=true,nvidia-device-plugin.devicePlugin.enabled=true,neuron-device-plugin.devicePlugin.enabled=true,aws-efa-k8s-device-plugin.devicePlugin.enabled=true,mpi-operator.enabled=true,health-monitoring-agent.enabled=true,deep-health-check.enabled=true,job-auto-restart.enabled=true,hyperpod-patching.enabled=true
+      mlflow.enabled=true,trainingOperators.enabled=true,cluster-role-and-bindings.enabled=true,namespaced-role-and-bindings.enable=true,nvidia-device-plugin.devicePlugin.enabled=true,neuron-device-plugin.devicePlugin.enabled=true,aws-efa-k8s-device-plugin.devicePlugin.enabled=true,mpi-operator.enabled=true,health-monitoring-agent.enabled=true,deep-health-check.enabled=true,job-auto-restart.enabled=true,hyperpod-patching.enabled=true
     Description: The configuration of HyperPod Helm chart
   Namespace:
     Type: String
@@ -340,6 +349,17 @@ Parameters:
     Description: >-
       The file name of lifecycle script for the general purpose instance group. This script runs during cluster
       creation.
+  HyperPodClusterRole:
+    Type: String
+    Default: ''
+    Description: Hyperpod Cluster Role Arn
+  AutoScalerType:
+    Type: String
+    Default: None
+    AllowedValues:
+      - Karpenter
+      - None
+    Description: The type of autoscaler to use
   InstanceGroupSettings1:
     Type: String
     Default: '[]'
@@ -1003,6 +1023,10 @@ Resources:
           Ref: NodeRecovery
         NodeProvisioningMode:
           Ref: NodeProvisioningMode
+        HyperPodClusterRole:
+          Ref: HyperPodClusterRole
+        AutoScalerType:
+          Ref: AutoScalerType
         EKSClusterName:
           Fn::If:
             - CreateEKSClusterStackCondition
