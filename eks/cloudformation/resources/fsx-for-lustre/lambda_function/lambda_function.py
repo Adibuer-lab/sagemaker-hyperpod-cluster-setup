@@ -340,11 +340,9 @@ def create_existing_fsx_resources(response_data):
         # Get subnet ID and security group IDs from the existing FSx file system
         subnet_id, security_group_ids = get_fsx_network_config(fsx_file_system_id, aws_region)
         # Create unique resource names to avoid conflicts
-        resource_suffix = fsx_file_system_id.replace('fs-', '')[:8]
-        sc_name = f"fsx-sc-{resource_suffix}"
-        pv_name = f"fsx-pv-{resource_suffix}"
-        pvc_name = f"fsx-claim-{resource_suffix}"
-        pod_name = f"fsx-app-{resource_suffix}"
+        pvc_name = "fsx-claim"
+        pv_name = "fsx-pv"
+        sc_name = "fsx-sc"
         
         # Get FSx file system details using boto3
         fsx_client = boto3.client('fsx', region_name=aws_region)
@@ -447,34 +445,6 @@ spec:
         subprocess.run(['kubectl', 'apply', '-f', pvc_path], check=True)
         print("PersistentVolumeClaim created successfully")
         
-        # 4. Create Pod that uses the FSx volume
-        print("Creating Pod that mounts the FSx volume...")
-        pod_content = f"""apiVersion: v1
-kind: Pod
-metadata:
-  name: {pod_name}
-spec:
-  containers:
-  - name: app
-    image: ubuntu
-    command: ["/bin/sh"]
-    args: ["-c", "while true; do echo $(date -u) >> /data/out.txt; sleep 5; done"]
-    volumeMounts:
-    - name: persistent-storage
-      mountPath: /data
-  volumes:
-  - name: persistent-storage
-    persistentVolumeClaim:
-      claimName: {pvc_name}
-"""
-        
-        pod_path = '/tmp/pod.yaml'
-        with open(pod_path, 'w') as f:
-            f.write(pod_content)
-            
-        subprocess.run(['kubectl', 'apply', '-f', pod_path], check=True)
-        print("Sample Pod created successfully")
-        
         # Verify resources were created
         print("\nVerifying created resources...")
         
@@ -501,14 +471,6 @@ spec:
             print(f"PersistentVolumeClaim status:\n{result.stdout}")
         except subprocess.CalledProcessError as e:
             print(f"Warning: Failed to verify PersistentVolumeClaim: {e}")
-            
-        # Check Pod
-        try:
-            result = subprocess.run(['kubectl', 'get', 'pod', pod_name], 
-                                  check=True, capture_output=True, text=True)
-            print(f"Pod status:\n{result.stdout}")
-        except subprocess.CalledProcessError as e:
-            print(f"Warning: Failed to verify Pod: {e}")
         
         # Update response data
         response_data.update({
@@ -516,14 +478,12 @@ spec:
             "PersistentVolumeName": pv_name, 
             "PersistentVolumeClaimName": pvc_name,
             "PVCNamespace": "default",
-            "SamplePodName": pod_name,
             "FSxDNSName": dns_name,
             "FSxMountName": mount_name
         })
         
         print("\nKubernetes resources for existing FSx file system created successfully!")
         print(f"You can now use the PVC '{pvc_name}' in your applications to mount the FSx volume.")
-        print(f"The sample pod '{pod_name}' demonstrates how to use the volume.")
         
     except Exception as e:
         print(f"Error creating Kubernetes resources for existing FSx: {str(e)}")
@@ -722,27 +682,9 @@ def on_delete(event):
         write_kubeconfig(os.environ['CLUSTER_NAME'], os.environ['AWS_REGION'])
 
         # Delete Kubernetes resources (both for dynamic and existing FSx)
-        # For existing FSx, use unique names; for dynamic, use standard names
-        if 'FSX_FILE_SYSTEM_ID' in os.environ and os.environ['FSX_FILE_SYSTEM_ID'] != '':
-            # Existing FSx - use unique names
-            resource_suffix = os.environ['FSX_FILE_SYSTEM_ID'].replace('fs-', '')[:8]
-            pod_name = f"fsx-app-{resource_suffix}"
-            pvc_name = f"fsx-claim-{resource_suffix}"
-            pv_name = f"fsx-pv-{resource_suffix}"
-            sc_name = f"fsx-sc-{resource_suffix}"
-        else:
-            # Dynamic provisioning - use standard names
-            pod_name = "fsx-app"
-            pvc_name = "fsx-claim"
-            pv_name = "fsx-pv"
-            sc_name = "fsx-sc"
-            
-        try:
-            print(f"Deleting sample Pod {pod_name}...")
-            subprocess.run(['kubectl', 'delete', 'pod', pod_name, '--ignore-not-found=true'], check=True)
-            print("Successfully deleted Pod")
-        except subprocess.CalledProcessError as e:
-            print(f"Warning: Failed to delete Pod: {e}")
+        pvc_name = "fsx-claim"
+        pv_name = "fsx-pv"
+        sc_name = "fsx-sc"
             
         try:
             print(f"Deleting PersistentVolumeClaim {pvc_name}...")
