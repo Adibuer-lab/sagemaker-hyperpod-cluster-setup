@@ -265,7 +265,7 @@ Parameters:
     Description: The ID of the security group associated with an existing EKS cluster.
   KubernetesVersion:
     Type: String
-    Default: '1.31'
+    Default: '1.32'
     Description: The Kubernetes version to use for the EKS cluster.
   EKSClusterName:
     Type: String
