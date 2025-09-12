@@ -305,6 +305,14 @@ def create_hyperpod_cluster(instance_groups):
         node_provisioning_mode = os.environ.get('NODE_PROVISIONING_MODE')
         if node_provisioning_mode and node_provisioning_mode == 'Continuous':
             create_params['NodeProvisioningMode'] = node_provisioning_mode;
+            autoscaler_type = os.environ.get('AUTOSCALER_TYPE')
+            if autoscaler_type != 'None':
+                create_params['AutoScaling'] = {
+                    'Mode': 'Enable',
+                    'AutoScalerType': autoscaler_type
+                }
+                create_params['ClusterRole'] = os.environ.get('CLUSTER_ROLE')
+
         
     print(f"Creating yaml with parameters: {create_params}")
     yaml_str = generate_cluster_template_yaml(create_params)

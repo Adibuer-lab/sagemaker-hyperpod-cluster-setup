@@ -255,7 +255,7 @@ Resources:
           - Effect: Allow
             Principal:
               Service:
-                - sagemaker.amazonaws.com
+                - hyperpod.sagemaker.amazonaws.com
             Action:
               - sts:AssumeRole
       Path: /
@@ -265,17 +265,32 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - eks:DescribeCluster
-                Resource:
-                  - Fn::Sub: arn:aws:eks:${AWS::Region}:${AWS::AccountId}:cluster/${EKSClusterName}
-              - Effect: Allow
-                Action:
                   - sagemaker:BatchAddClusterNodes
                   - sagemaker:BatchDeleteClusterNodes
                 Resource:
                   - Fn::Sub: arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:cluster/*
+              - Effect: Allow
+                Action:
+                  - kms:CreateGrant
+                  - kms:DescribeKey
+                Resource:
+                  - Fn::Sub: arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/*
+                Condition:
+                  StringLike:
+                    kms:ViaService: sagemaker.*.amazonaws.com
+                  Bool:
+                    kms:GrantIsForAWSResource: 'true'
+                  ForAllValues:StringEquals:
+                    kms:GrantOperations:
+                      - CreateGrant
+                      - Decrypt
+                      - DescribeKey
+                      - GenerateDataKeyWithoutPlaintext
+                      - ReEncryptTo
+                      - ReEncryptFrom
+                      - RetireGrant
           PolicyName:
-            Fn::Sub: ${ResourceNamePrefix}-AutoScaler-Policy
+            Fn::Sub: ${ResourceNamePrefix}-Karpenter-Policy
       RoleName:
         Fn::Sub: ${ResourceNamePrefix}-ClusterRole
       Tags:
