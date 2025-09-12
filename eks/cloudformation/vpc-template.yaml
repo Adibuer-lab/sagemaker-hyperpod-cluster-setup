@@ -24,6 +24,9 @@ Resources:
         - Key: aws-sagemaker-hyperpod-prerequiste
           Value:
             Fn::Sub: ${ResourceNamePrefix}-VPC
+        - Key: Name
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-VPC
     Metadata:
       aws:cdk:path: VpcCfnTemplate/VPC
   InternetGateway:
@@ -31,6 +34,9 @@ Resources:
     Properties:
       Tags:
         - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-IGW
+        - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-IGW
     Metadata:
@@ -49,6 +55,9 @@ Resources:
     Properties:
       Tags:
         - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Public-Routes
+        - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Public-Routes
       VpcId:
@@ -102,6 +111,9 @@ Resources:
         - Key: aws-sagemaker-hyperpod-prerequiste
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Public-Subnet1
+        - Key: Name
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Public-Subnet1
       VpcId:
         Ref: VPC
     Metadata:
@@ -150,6 +162,9 @@ Resources:
       MapPublicIpOnLaunch: true
       Tags:
         - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Public-Subnet2
+        - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Public-Subnet2
       VpcId:
@@ -202,6 +217,9 @@ Resources:
         - Key: aws-sagemaker-hyperpod-prerequiste
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Public-Subnet3
+        - Key: Name
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Public-Subnet3
       VpcId:
         Ref: VPC
     Metadata:
@@ -250,6 +268,9 @@ Resources:
       MapPublicIpOnLaunch: true
       Tags:
         - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Public-Subnet4
+        - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Public-Subnet4
       VpcId:
@@ -302,6 +323,9 @@ Resources:
         - Key: aws-sagemaker-hyperpod-prerequiste
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Public-Subnet5
+        - Key: Name
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Public-Subnet5
       VpcId:
         Ref: VPC
     Metadata:
@@ -321,6 +345,13 @@ Resources:
     Type: AWS::EC2::EIP
     Properties:
       Domain: vpc
+      Tags:
+        - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-NAT-EIP
+        - Key: Name
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-NAT-EIP
     DependsOn:
       - InternetGatewayAttachment
     Metadata:
@@ -335,6 +366,13 @@ Resources:
           - AllocationId
       SubnetId:
         Ref: PublicSubnet1
+      Tags:
+        - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-NAT-Gateway
+        - Key: Name
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-NAT-Gateway
     Metadata:
       aws:cdk:path: VpcCfnTemplate/NatGateway
     Condition: HasAZ1

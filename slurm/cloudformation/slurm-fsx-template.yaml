@@ -215,7 +215,7 @@ Resources:
         Ref: FsxAvailabilityZoneId
       PrivateSubnetIds:
         Ref: PrivateSubnetIds
-      Timestamp: '1757455169355'
+      Timestamp: '1757633006126'
     Metadata:
       aws:cdk:path: SlurmFsxCfnTemplate/FsxHelperResource
   FSxLustreFileSystem:
@@ -250,6 +250,9 @@ Resources:
             - Ref: FsxSubnetId
       Tags:
         - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-fsx-lustre
+        - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-fsx-lustre
     Metadata:

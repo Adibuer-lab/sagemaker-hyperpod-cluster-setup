@@ -64,6 +64,9 @@ Resources:
         - Key: aws-sagemaker-hyperpod-prerequiste
           Value:
             Fn::Sub: ${ResourceNamePrefix}-VPC
+        - Key: Name
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-VPC
     Metadata:
       aws:cdk:path: SlurmVpcCfnTemplate/VPC
   InternetGateway:
@@ -71,6 +74,9 @@ Resources:
     Properties:
       Tags:
         - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-IGW
+        - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-IGW
     Metadata:
@@ -136,6 +142,9 @@ Resources:
     Type: AWS::EC2::RouteTable
     Properties:
       Tags:
+        - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Public-Routes
         - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Public-Routes
@@ -187,6 +196,9 @@ Resources:
             - .0.0/24
       MapPublicIpOnLaunch: true
       Tags:
+        - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Public-Subnet1
         - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Public-Subnet1
@@ -237,6 +249,9 @@ Resources:
             - .32.0/24
       MapPublicIpOnLaunch: true
       Tags:
+        - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Public-Subnet2
         - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Public-Subnet2
@@ -287,6 +302,9 @@ Resources:
             - .64.0/24
       MapPublicIpOnLaunch: true
       Tags:
+        - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Public-Subnet3
         - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Public-Subnet3
@@ -337,6 +355,9 @@ Resources:
             - .96.0/24
       MapPublicIpOnLaunch: true
       Tags:
+        - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Public-Subnet4
         - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Public-Subnet4
@@ -387,6 +408,9 @@ Resources:
             - .128.0/24
       MapPublicIpOnLaunch: true
       Tags:
+        - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Public-Subnet5
         - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Public-Subnet5
@@ -409,6 +433,13 @@ Resources:
     Type: AWS::EC2::EIP
     Properties:
       Domain: vpc
+      Tags:
+        - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-NAT-EIP
+        - Key: Name
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-NAT-EIP
     DependsOn:
       - InternetGatewayAttachment
     Metadata:
@@ -423,6 +454,13 @@ Resources:
           - AllocationId
       SubnetId:
         Ref: PublicSubnet1
+      Tags:
+        - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-NAT-Gateway
+        - Key: Name
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-NAT-Gateway
     Metadata:
       aws:cdk:path: SlurmVpcCfnTemplate/NatGateway
     Condition: HasAZ1
@@ -454,6 +492,9 @@ Resources:
           - 10.1.0.0/16
       MapPublicIpOnLaunch: false
       Tags:
+        - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Private1
         - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Private1
@@ -468,6 +509,9 @@ Resources:
     Type: AWS::EC2::RouteTable
     Properties:
       Tags:
+        - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Private-RT-1
         - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Private-RT-1
@@ -525,6 +569,9 @@ Resources:
           - 10.2.0.0/16
       MapPublicIpOnLaunch: false
       Tags:
+        - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Private2
         - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Private2
@@ -539,6 +586,9 @@ Resources:
     Type: AWS::EC2::RouteTable
     Properties:
       Tags:
+        - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Private-RT-2
         - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Private-RT-2
@@ -596,6 +646,9 @@ Resources:
           - 10.3.0.0/16
       MapPublicIpOnLaunch: false
       Tags:
+        - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Private3
         - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Private3
@@ -610,6 +663,9 @@ Resources:
     Type: AWS::EC2::RouteTable
     Properties:
       Tags:
+        - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Private-RT-3
         - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Private-RT-3
@@ -667,6 +723,9 @@ Resources:
           - 10.4.0.0/16
       MapPublicIpOnLaunch: false
       Tags:
+        - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Private4
         - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Private4
@@ -681,6 +740,9 @@ Resources:
     Type: AWS::EC2::RouteTable
     Properties:
       Tags:
+        - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Private-RT-4
         - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Private-RT-4
@@ -738,6 +800,9 @@ Resources:
           - 10.5.0.0/16
       MapPublicIpOnLaunch: false
       Tags:
+        - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Private5
         - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Private5
@@ -752,6 +817,9 @@ Resources:
     Type: AWS::EC2::RouteTable
     Properties:
       Tags:
+        - Key: aws-sagemaker-hyperpod-prerequiste
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-Private-RT-5
         - Key: Name
           Value:
             Fn::Sub: ${ResourceNamePrefix}-Private-RT-5
