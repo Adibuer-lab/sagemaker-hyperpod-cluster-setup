@@ -61,7 +61,7 @@ def on_create():
         permission_type = 'CUSTOMER_MANAGED'
         configuration = "{\"unifiedAlerting\":{\"enabled\":true}}"
         tags = {
-            "Sagemaker": "true"
+            "SageMaker": "true"
         }
         grafana = boto3.client('grafana')
         print(f"Creating Grafana Workspace: {workspace_name}")

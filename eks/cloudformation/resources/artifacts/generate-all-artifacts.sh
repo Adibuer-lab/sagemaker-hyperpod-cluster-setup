@@ -10,3 +10,4 @@ cd ../private-subnet-tagging && ./generate-lambda-zip.sh
 cd ../grafana-lambda-function && ./generate-lambda-zip.sh
 cd ../observability-grafana-creator && ./generate-observability-grafana-creator-lambda-zip.sh
 cd ../grafana-service-token && ./generate-grafana-service-token-lambda-zip.sh
+cd ../observability-stack && ./generate-observability-stack-lambda-zip.sh
