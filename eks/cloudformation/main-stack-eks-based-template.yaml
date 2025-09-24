@@ -1,4 +1,5 @@
 Description: Main Stack for EKS based HyperPod Cluster
+Transform: AWS::LanguageExtensions
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
@@ -14,6 +15,7 @@ Metadata:
           - AutoScalerType
           - Tags
           - EnableHPInferenceFeature
+          - EnableObservabilityFeature
       - Label:
           default: HyperPod Cluster
         Parameters:
@@ -74,6 +76,29 @@ Metadata:
           - DataCompressionType
           - FileSystemTypeVersion
       - Label:
+          default: Observability
+        Parameters:
+          - PrometheusWorkspaceId
+          - PrometheusWorkspaceArn
+          - PrometheusWorkspaceEndpoint
+          - GrafanaWorkspaceId
+          - GrafanaWorkspaceArn
+          - GrafanaWorkspaceName
+          - TrainingMetricLevel
+          - TaskGovernanceMetricLevel
+          - ScalingMetricLevel
+          - NetworkMetricLevel
+          - ClusterMetricLevel
+          - NodeMetricLevel
+          - AcceleratedComputeMetricLevel
+          - Logging
+          - HyperPodObservabilityRole
+          - GrafanaRole
+          - HyperPodObservabilityRoleType
+          - GrafanaRoleType
+          - PrometheusWorkspaceType
+          - GrafanaWorkspaceType
+      - Label:
           default: Instance Groups
         Parameters:
           - InstanceGroupSettings1
@@ -126,6 +151,8 @@ Metadata:
         default: Deployment Stage
       EnableHPInferenceFeature:
         default: Feature flag for enabling HP inference
+      EnableObservabilityFeature:
+        default: Feature flag for enabling observability
       CustomBucketName:
         default: Custom S3 Bucket Name
       NodeRecovery:
@@ -220,6 +247,46 @@ Metadata:
         default: Create HyperPod Cluster
       HyperPodClusterName:
         default: HyperPod Cluster Name
+      PrometheusWorkspaceId:
+        default: PrometheusWorkspaceId
+      PrometheusWorkspaceArn:
+        default: PrometheusWorkspaceArn
+      PrometheusWorkspaceEndpoint:
+        default: PrometheusWorkspaceEndpoint
+      GrafanaWorkspaceId:
+        default: GrafanaWorkspaceId
+      GrafanaWorkspaceArn:
+        default: GrafanaWorkspaceArn
+      GrafanaWorkspaceName:
+        default: GrafanaWorkspaceName
+      TrainingMetricLevel:
+        default: TrainingMetricLevel
+      TaskGovernanceMetricLevel:
+        default: TaskGovernanceMetricLevel
+      ClusterMetricLevel:
+        default: ClusterMetricLevel
+      NodeMetricLevel:
+        default: NodeMetricLevel
+      AcceleratedComputeMetricLevel:
+        default: AcceleratedComputeMetricLevel
+      ScalingMetricLevel:
+        default: ScalingMetricLevel
+      NetworkMetricLevel:
+        default: NetworkMetricLevel
+      Logging:
+        default: Logging
+      HyperPodObservabilityRole:
+        default: HyperPodObservabilityRole
+      GrafanaRole:
+        default: GrafanaRole
+      HyperpodObservabilityRoleType:
+        default: HyperPodObservabilityRoleType
+      GrafanaRoleType:
+        default: GrafanaRoleType
+      PrometheusWorkspaceType:
+        default: PrometheusWorkspaceType
+      GrafanaWorkspaceType:
+        default: GrafanaWorkspaceType
 Parameters:
   Stage:
     Type: String
@@ -235,6 +302,13 @@ Parameters:
       - 'true'
       - 'false'
     Description: Set to "true" to enable the HP inference feature, "false" otherwise.
+  EnableObservabilityFeature:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Set to "true" to enable the HP observability feature, "false" otherwise.
   CustomBucketName:
     Type: String
     Default: ''
@@ -563,6 +637,102 @@ Parameters:
     Type: String
     Default: ''
     Description: Existing FSx for Lustre file system
+  PrometheusWorkspaceId:
+    Type: String
+    Default: ''
+    Description: The ID of the existing Amazon Managed Service for Prometheus (AMP) workspace.
+  PrometheusWorkspaceArn:
+    Type: String
+    Default: ''
+    Description: The ARN of the existing Amazon Managed Service for Prometheus (AMP) workspace.
+  PrometheusWorkspaceEndpoint:
+    Type: String
+    Default: ''
+    Description: The Endpoint of the existing Amazon Managed Service for Prometheus (AMP) workspace.
+  GrafanaWorkspaceId:
+    Type: String
+    Default: ''
+    Description: The ID of the existing Amazon Managed Service for Grafana (AMG) workspace.
+  GrafanaWorkspaceArn:
+    Type: String
+    Default: ''
+    Description: The Arn of the existing Amazon Managed Service for Grafana (AMG) workspace.
+  TrainingMetricLevel:
+    Type: String
+    Default: BASIC
+    Description: The level of training metric for EKS AddOn.
+  TaskGovernanceMetricLevel:
+    Type: String
+    Default: DISABLED
+    Description: The level of task governance metric for EKS AddOn.
+  ClusterMetricLevel:
+    Type: String
+    Default: BASIC
+    Description: The level of cluster metric for EKS AddOn.
+  NodeMetricLevel:
+    Type: String
+    Default: BASIC
+    Description: The level of node metric for EKS AddOn.
+  AcceleratedComputeMetricLevel:
+    Type: String
+    Default: BASIC
+    Description: The level of accelerated compute metric for EKS AddOn.
+  ScalingMetricLevel:
+    Type: String
+    Default: DISABLED
+    Description: The level of scaling metric for EKS AddOn.
+  NetworkMetricLevel:
+    Type: String
+    Default: DISABLED
+    Description: The level of network metric for EKS AddOn.
+  GrafanaWorkspaceName:
+    Type: String
+    Default: ''
+    Description: The name to be used for grafana by this template.
+  Logging:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Specify whether to enable logging
+  HyperPodObservabilityRole:
+    Type: String
+    Default: ''
+    Description: The role to be used with Hyperpod Observability AddOn
+  GrafanaRole:
+    Type: String
+    Default: ''
+    Description: The role to be used with Hyperpod Observability Grafana Custom Resources
+  HyperPodObservabilityRoleType:
+    Type: String
+    Default: Default
+    AllowedValues:
+      - Default
+      - Existing
+    Description: Specify whether to use existing role for Hyperpod Observability AddOn
+  GrafanaRoleType:
+    Type: String
+    Default: Default
+    AllowedValues:
+      - Default
+      - Existing
+    Description: Specify whether to use existing role for Hyperpod Observability Grafana Custom Resources
+  PrometheusWorkspaceType:
+    Type: String
+    Default: Default
+    AllowedValues:
+      - Default
+      - Existing
+    Description: Specify whether to use existing workspace
+  GrafanaWorkspaceType:
+    Type: String
+    Default: Default
+    AllowedValues:
+      - Default
+      - Existing
+      - Disabled
+    Description: Specify whether to use existing workspace
   CreateVPCStack:
     Type: String
     Default: 'true'
@@ -638,6 +808,18 @@ Conditions:
     Fn::Equals:
       - Ref: EnableHPInferenceFeature
       - 'true'
+  EnableObservabilityFeatureCondition:
+    Fn::And:
+      - Fn::Equals:
+          - Ref: EnableObservabilityFeature
+          - 'true'
+      - Fn::Equals:
+          - Fn::FindInMap:
+              - AMPRegionMapping
+              - Ref: AWS::Region
+              - isAllowed
+              - DefaultValue: 'false'
+          - 'true'
   CreateVPCStackCondition:
     Fn::Equals:
       - Ref: CreateVPCStack
@@ -701,6 +883,36 @@ Conditions:
       - Fn::Equals:
           - Ref: CustomBucketName
           - ''
+Mappings:
+  AMPRegionMapping:
+    us-east-1:
+      isAllowed: 'true'
+    us-east-2:
+      isAllowed: 'true'
+    us-west-2:
+      isAllowed: 'true'
+    ap-south-1:
+      isAllowed: 'true'
+    ap-northeast-1:
+      isAllowed: 'true'
+    ap-northeast-2:
+      isAllowed: 'true'
+    ap-southeast-1:
+      isAllowed: 'true'
+    ap-southeast-2:
+      isAllowed: 'true'
+    ca-central-1:
+      isAllowed: 'true'
+    eu-central-1:
+      isAllowed: 'true'
+    eu-west-1:
+      isAllowed: 'true'
+    eu-west-2:
+      isAllowed: 'true'
+    eu-north-1:
+      isAllowed: 'true'
+    sa-east-1:
+      isAllowed: 'true'
 Resources:
   VPCStack:
     Type: AWS::CloudFormation::Stack
@@ -1326,6 +1538,100 @@ Resources:
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/InferenceOperatorMainStack
     Condition: EnableHPInferenceFeatureCondition
+  ObservabilityCustomStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL:
+        Fn::If:
+          - CustomBucketCondition
+          - Fn::Sub: https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/observability-stack-template.yaml
+          - Fn::Sub: >-
+              https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/observability-stack-template.yaml
+      Parameters:
+        ResourceNamePrefix:
+          Ref: ResourceNamePrefix
+        EKSClusterName:
+          Fn::If:
+            - CreateEKSClusterStackCondition
+            - Fn::GetAtt:
+                - EKSClusterStack
+                - Outputs.EKSClusterName
+            - Ref: EKSClusterName
+        CustomResourceS3Bucket:
+          Fn::If:
+            - CustomBucketCondition
+            - Ref: CustomBucketName
+            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
+        PrivateSubnetIds:
+          Fn::If:
+            - CreatePrivateSubnetStackCondition
+            - Fn::GetAtt:
+                - PrivateSubnetStack
+                - Outputs.PrivateSubnetIds
+            - Ref: PrivateSubnetIds
+        SecurityGroupId:
+          Fn::If:
+            - CreateSecurityGroupStackCondition
+            - Fn::GetAtt:
+                - SecurityGroupStack
+                - Outputs.SecurityGroupId
+            - Ref: SecurityGroupIds
+        VpcId:
+          Fn::If:
+            - CreateVPCStackCondition
+            - Fn::GetAtt:
+                - VPCStack
+                - Outputs.VpcId
+            - Ref: VpcId
+        PrometheusWorkspaceId:
+          Ref: PrometheusWorkspaceId
+        PrometheusWorkspaceEndpoint:
+          Ref: PrometheusWorkspaceEndpoint
+        PrometheusWorkspaceArn:
+          Ref: PrometheusWorkspaceArn
+        GrafanaWorkspaceName:
+          Ref: GrafanaWorkspaceName
+        GrafanaWorkspaceId:
+          Ref: GrafanaWorkspaceId
+        GrafanaWorkspaceArn:
+          Ref: GrafanaWorkspaceArn
+        TrainingMetricLevel:
+          Ref: TrainingMetricLevel
+        TaskGovernanceMetricLevel:
+          Ref: TaskGovernanceMetricLevel
+        ClusterMetricLevel:
+          Ref: ClusterMetricLevel
+        ScalingMetricLevel:
+          Ref: ScalingMetricLevel
+        NetworkMetricLevel:
+          Ref: NetworkMetricLevel
+        AcceleratedComputeMetricLevel:
+          Ref: AcceleratedComputeMetricLevel
+        NodeMetricLevel:
+          Ref: NodeMetricLevel
+        Logging:
+          Ref: Logging
+        HyperPodObservabilityRole:
+          Ref: HyperPodObservabilityRole
+        GrafanaRole:
+          Ref: GrafanaRole
+        StackTemplateUrl:
+          Fn::If:
+            - CustomBucketCondition
+            - Fn::Sub: https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/observability-template.yaml
+            - Fn::Sub: >-
+                aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/observability-template.yaml
+        GrafanaWorkspaceType:
+          Ref: GrafanaWorkspaceType
+        PrometheusWorkspaceType:
+          Ref: PrometheusWorkspaceType
+        GrafanaRoleType:
+          Ref: GrafanaRoleType
+        HyperPodObservabilityRoleType:
+          Ref: HyperPodObservabilityRoleType
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/ObservabilityCustomStack
+    Condition: EnableObservabilityFeatureCondition
 Outputs:
   OutputVpcId:
     Value:
