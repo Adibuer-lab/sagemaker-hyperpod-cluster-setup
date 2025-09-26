@@ -1620,7 +1620,7 @@ Resources:
             - CustomBucketCondition
             - Fn::Sub: https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/observability-template.yaml
             - Fn::Sub: >-
-                aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/observability-template.yaml
+                https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/observability-template.yaml
         GrafanaWorkspaceType:
           Ref: GrafanaWorkspaceType
         PrometheusWorkspaceType:
