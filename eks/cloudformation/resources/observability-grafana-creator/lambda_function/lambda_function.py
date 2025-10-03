@@ -74,6 +74,7 @@ def on_create():
             workspaceRoleArn=workspace_role_arn,
             tags=tags
         )
+        print(f"Created Grafana Workspace: {workspace_name}")
         response_data['WorkspaceId'] = response['workspace']['id']
         retries = 0
         MAX_RETRIES = 20
@@ -106,6 +107,7 @@ def on_create():
 
 
         response_data['Arn'] = "arn:" + os.environ['PARTITION'] +":grafana:" + os.environ['REGION'] + ":" + os.environ['AWS_ACCOUNT_ID'] + ":/workspaces/" + response['workspace']['id']
+        response_data['Name'] = workspace_name
         return response_data
          
     except Exception as e:

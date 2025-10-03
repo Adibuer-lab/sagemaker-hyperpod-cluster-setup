@@ -18,9 +18,9 @@ def lambda_handler(event, context):
         if request_type == 'Create':
             response_data = on_create(event)
         elif request_type == 'Update':
-            response_data = on_update()
+            response_data = on_update(event)
         elif request_type == 'Delete':
-            response_data = on_delete()
+            response_data = on_delete(event)
         else:
             raise ValueError(f"Invalid request type: {request_type}")
  
@@ -56,9 +56,7 @@ def on_create(event):
         props = event.get('ResourceProperties', {})
         stack_name = props.get('ResourceNamePrefix') + "-ObservabilityStack"
         template_url = props.get('StackTemplateUrl')
-        props = event.get('ResourceProperties', {})
-        subnet_list = props.get('PrivateSubnetIds')
-        subnet_string = ",".join(subnet_list)
+        subnet_string = props.get('PrivateSubnetIds')
 
         cfn = boto3.client('cloudformation')
         print(f"Creating Cloudformation Stack: {stack_name}")
@@ -76,18 +74,6 @@ def on_create(event):
                 'ParameterKey': 'CustomResourceS3Bucket',
                 'ParameterValue': props.get('CustomResourceS3Bucket')
                 },      
-                {
-                'ParameterKey': 'GrafanaCreatorfunctionS3Key',
-                'ParameterValue': props.get('GrafanaCreatorfunctionS3Key')
-                },
-                {
-                'ParameterKey': 'GrafanaServiceAccountfunctionS3Key',
-                'ParameterValue': props.get('GrafanaServiceAccountfunctionS3Key')
-                },  
-                {
-                'ParameterKey': 'FunctionS3Key',
-                'ParameterValue': props.get('FunctionS3Key')
-                },
                 {
                 'ParameterKey': 'EKSClusterName',
                 'ParameterValue': props.get('EKSClusterName')
@@ -194,7 +180,7 @@ def on_create(event):
         print(f"Failed to create Cloudformation Workspace: {str(e)}")
         raise
           
-def on_update():
+def on_update(event):
     """
     Handle Update request to update an existing Grafana Workspace
     """
@@ -207,9 +193,7 @@ def on_update():
         props = event.get('ResourceProperties', {})
         stack_name = props.get('ResourceNamePrefix') + "-ObservabilityStack"
         template_url = props.get('StackTemplateUrl')
-        props = event.get('ResourceProperties', {})
-        subnet_list = props.get('PrivateSubnetIds')
-        subnet_string = ",".join(subnet_list)
+        subnet_string = props.get('PrivateSubnetIds')
 
         cfn = boto3.client('cloudformation')
         print(f"Updating Cloudformation Stack: {stack_name}")
@@ -224,18 +208,6 @@ def on_update():
                 {
                 'ParameterKey': 'CustomResourceS3Bucket',
                 'ParameterValue': props.get('CustomResourceS3Bucket')
-                },      
-                {
-                'ParameterKey': 'GrafanaCreatorfunctionS3Key',
-                'ParameterValue': props.get('GrafanaCreatorfunctionS3Key')
-                },
-                {
-                'ParameterKey': 'GrafanaServiceAccountfunctionS3Key',
-                'ParameterValue': props.get('GrafanaServiceAccountfunctionS3Key')
-                },  
-                {
-                'ParameterKey': 'FunctionS3Key',
-                'ParameterValue': props.get('FunctionS3Key')
                 },
                 {
                 'ParameterKey': 'EKSClusterName',
@@ -343,7 +315,7 @@ def on_update():
         print(f"Failed to create Cloudformation Workspace: {str(e)}")
         raise
 
-def on_delete():
+def on_delete(event):
     """
     Handle Delete request to delete a Grafana Workspace
     """
@@ -353,8 +325,26 @@ def on_delete():
             "Reason": "Observability Stack deleted successfully"
         }
         print(f"Request received for Deletion of CFN")
-        return response_data
+        props = event.get('ResourceProperties', {})
+        stack_name = props.get('ResourceNamePrefix') + "-ObservabilityStack"
+        cfn = boto3.client('cloudformation')
+        cfn.delete_stack(
+            StackName=stack_name
+        )
+        # Wait for stack to be deleted
+        while True:
+            response = cfn.describe_stacks(StackName=stack_name)
+            status = response['Stacks'][0]['StackStatus']
+            print(f"Waiting for stack {stack_name} to be deleted, current status: {status}")
+            if status in ['DELETE_COMPLETE']:
+                break
+            elif status in ['DELETE_FAILED', 'ROLLBACK_FAILED']:
+                raise Exception(f"Stack deletion failed: {status}")
+            time.sleep(10)
 
     except Exception as e:
-        print(f"Failed to delete Grafana Workspace: {str(e)}")
-        raise
+        print(f"Failed to delete Observability stack: {str(e)}")
+        if "does not exist" in str(e):
+            return response_data
+        else:
+            raise e
