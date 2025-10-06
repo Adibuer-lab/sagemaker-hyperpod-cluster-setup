@@ -1542,7 +1542,7 @@ Resources:
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/InferenceOperatorMainStack
     Condition: EnableHPInferenceFeatureCondition
-  ObservabilityCfnStackRole:
+  ObservabilityCustomResourceRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -1616,20 +1616,51 @@ Resources:
                 Action:
                   - ec2:CreateNetworkInterface
                   - ec2:CreateTags
-                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DeleteNetworkInterface
+                  - ec2:CreateVpcEndpoint
+                  - ec2:DescribeVpcEndpoint
                 Resource:
                   - Fn::Sub: arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:security-group/*
                   - Fn::Sub: arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:subnet/*
                   - Fn::Sub: arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/*
-                  - Fn::Sub: arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:vpc/${VpcId}
+                  - Fn::Sub: arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:vpc-endpoint/*
+                  - Fn::Sub: arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:route-table/*
+                  - Fn::If:
+                      - CreateVPCStackCondition
+                      - Fn::Sub: arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:vpc/${VPCStack.Outputs.VpcId}
+                      - Fn::Sub: arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:vpc/${VpcId}
+              - Effect: Allow
+                Action:
+                  - ec2:DeleteNetworkInterface
+                Resource:
+                  - Fn::Sub: arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:*/*
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeVpcs
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeVpcEndpoints
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ec2:DeleteVpcEndpoints
+                  - ec2:CreateTags
+                Resource:
+                  Fn::Sub: arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:vpc-endpoint/*
+              - Effect: Allow
+                Action:
+                  - route53:AssociateVPCWithHostedZone
+                Resource:
+                  Fn::Sub: arn:aws:route53:::hostedzone/*
           PolicyName:
             Fn::Sub: ${ResourceNamePrefix}-CFNStack4
       RoleName:
         Fn::Sub: ${ResourceNamePrefix}-ObservabilityCfnStackRole
     Metadata:
-      aws:cdk:path: MainEksBasedCfnTemplate/ObservabilityCfnStackRole
+      aws:cdk:path: MainEksBasedCfnTemplate/ObservabilityCustomResourceRole
     Condition: EnableObservabilityFeatureCondition
-  ObservabilityCFNStackFunction:
+  ObservabilityCustomResourceFunction:
     Type: AWS::Lambda::Function
     Properties:
       Code:
@@ -1654,7 +1685,7 @@ Resources:
       MemorySize: 2048
       Role:
         Fn::GetAtt:
-          - ObservabilityCfnStackRole
+          - ObservabilityCustomResourceRole
           - Arn
       Runtime: python3.12
       Tags:
@@ -1662,16 +1693,16 @@ Resources:
           Value: 'true'
       Timeout: 900
     DependsOn:
-      - ObservabilityCfnStackRole
+      - ObservabilityCustomResourceRole
     Metadata:
-      aws:cdk:path: MainEksBasedCfnTemplate/ObservabilityCFNStackFunction
+      aws:cdk:path: MainEksBasedCfnTemplate/ObservabilityCustomResourceFunction
     Condition: EnableObservabilityFeatureCondition
-  ObservabilityCfnStackCustomResource:
-    Type: Custom::ObservabilityCFNStack
+  ObservabilityCustomResource:
+    Type: Custom::ObservabilityStack
     Properties:
       ServiceToken:
         Fn::GetAtt:
-          - ObservabilityCFNStackFunction
+          - ObservabilityCustomResourceFunction
           - Arn
       ResourceNamePrefix:
         Ref: ResourceNamePrefix
@@ -1755,9 +1786,9 @@ Resources:
       GrafanaWorkspaceType:
         Ref: GrafanaWorkspaceType
     DependsOn:
-      - ObservabilityCFNStackFunction
+      - ObservabilityCustomResourceFunction
     Metadata:
-      aws:cdk:path: MainEksBasedCfnTemplate/ObservabilityCfnStackCustomResource
+      aws:cdk:path: MainEksBasedCfnTemplate/ObservabilityCustomResource
     Condition: EnableObservabilityFeatureCondition
 Outputs:
   OutputVpcId:
@@ -1829,6 +1860,6 @@ Outputs:
   OutputObservabilityStackId:
     Value:
       Fn::GetAtt:
-        - ObservabilityCfnStackCustomResource
+        - ObservabilityCustomResource
         - StackId
     Condition: EnableObservabilityFeatureCondition
