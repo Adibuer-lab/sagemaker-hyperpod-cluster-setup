@@ -94,10 +94,10 @@ Metadata:
           - Logging
           - HyperPodObservabilityRole
           - GrafanaRole
-          - HyperPodObservabilityRoleType
-          - GrafanaRoleType
-          - PrometheusWorkspaceType
-          - GrafanaWorkspaceType
+          - CreateHyperPodObservabilityRole
+          - CreateGrafanaRole
+          - CreatePrometheusWorkspace
+          - CreateGrafanaWorkspace
       - Label:
           default: Instance Groups
         Parameters:
@@ -279,14 +279,14 @@ Metadata:
         default: HyperPodObservabilityRole
       GrafanaRole:
         default: GrafanaRole
-      HyperpodObservabilityRoleType:
-        default: HyperPodObservabilityRoleType
-      GrafanaRoleType:
-        default: GrafanaRoleType
-      PrometheusWorkspaceType:
-        default: PrometheusWorkspaceType
-      GrafanaWorkspaceType:
-        default: GrafanaWorkspaceType
+      CreateHyperPodObservabilityRole:
+        default: CreateHyperPodObservabilityRole
+      CreateGrafanaRole:
+        default: CreateGrafanaRole
+      CreatePrometheusWorkspace:
+        default: CreatePrometheusWorkspace
+      CreateGrafanaWorkspace:
+        default: CreateGrafanaWorkspace
 Parameters:
   Stage:
     Type: String
@@ -704,35 +704,35 @@ Parameters:
     Type: String
     Default: ''
     Description: The role to be used with Hyperpod Observability Grafana Custom Resources
-  HyperPodObservabilityRoleType:
+  CreateHyperPodObservabilityRole:
     Type: String
-    Default: Default
+    Default: 'true'
     AllowedValues:
-      - Default
-      - Existing
-    Description: Specify whether to use existing role for Hyperpod Observability AddOn
-  GrafanaRoleType:
+      - 'true'
+      - 'false'
+    Description: Specify whether to create new role for Hyperpod Observability AddOn
+  CreateGrafanaRole:
     Type: String
-    Default: Default
+    Default: 'true'
     AllowedValues:
-      - Default
-      - Existing
-    Description: Specify whether to use existing role for Hyperpod Observability Grafana Custom Resources
-  PrometheusWorkspaceType:
+      - 'true'
+      - 'false'
+    Description: Specify whether to create new role for Hyperpod Observability Grafana Custom Resources
+  CreatePrometheusWorkspace:
     Type: String
-    Default: Default
+    Default: 'true'
     AllowedValues:
-      - Default
-      - Existing
-    Description: Specify whether to use existing workspace
-  GrafanaWorkspaceType:
+      - 'true'
+      - 'false'
+    Description: Specify whether to create new prometheus workspace
+  CreateGrafanaWorkspace:
     Type: String
-    Default: Default
+    Default: 'true'
     AllowedValues:
-      - Default
-      - Existing
-      - Disabled
-    Description: Specify whether to use existing workspace
+      - 'true'
+      - 'false'
+      - disabled
+    Description: Specify whether to create new grafana workspace
   ObservabilityCfnStackFunctionS3Key:
     Type: String
     Default: resources/artifacts/observability-stack-lambda-function.zip
@@ -824,6 +824,10 @@ Conditions:
               - isAllowed
               - DefaultValue: 'false'
           - 'true'
+      - Fn::Not:
+          - Fn::Equals:
+              - Ref: Stage
+              - prod
   CreateVPCStackCondition:
     Fn::Equals:
       - Ref: CreateVPCStack
@@ -1777,14 +1781,14 @@ Resources:
           - Fn::Sub: https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/observability-template.yaml
           - Fn::Sub: >-
               https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/observability-template.yaml
-      HyperPodObservabilityRoleType:
-        Ref: HyperPodObservabilityRoleType
-      GrafanaRoleType:
-        Ref: GrafanaRoleType
-      PrometheusWorkspaceType:
-        Ref: PrometheusWorkspaceType
-      GrafanaWorkspaceType:
-        Ref: GrafanaWorkspaceType
+      CreateHyperPodObservabilityRole:
+        Ref: CreateHyperPodObservabilityRole
+      CreateGrafanaRole:
+        Ref: CreateGrafanaRole
+      CreatePrometheusWorkspace:
+        Ref: CreatePrometheusWorkspace
+      CreateGrafanaWorkspace:
+        Ref: CreateGrafanaWorkspace
     DependsOn:
       - ObservabilityCustomResourceFunction
     Metadata:
