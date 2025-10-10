@@ -155,20 +155,20 @@ def on_create(event):
                 'ParameterValue': props.get('GrafanaRole')
                 }, 
                 {
-                'ParameterKey': 'HyperPodObservabilityRoleType',
-                'ParameterValue': props.get('HyperPodObservabilityRoleType')
+                'ParameterKey': 'CreateHyperPodObservabilityRole',
+                'ParameterValue': props.get('CreateHyperPodObservabilityRole')
                 },
                 {
-                'ParameterKey': 'GrafanaRoleType',
-                'ParameterValue': props.get('GrafanaRoleType')
+                'ParameterKey': 'CreateGrafanaRole',
+                'ParameterValue': props.get('CreateGrafanaRole')
                 },                
                 {
-                'ParameterKey': 'PrometheusWorkspaceType',
-                'ParameterValue': props.get('PrometheusWorkspaceType')
+                'ParameterKey': 'CreatePrometheusWorkspace',
+                'ParameterValue': props.get('CreatePrometheusWorkspace')
                 },                
                 {
-                'ParameterKey': 'GrafanaWorkspaceType',
-                'ParameterValue': props.get('GrafanaWorkspaceType')
+                'ParameterKey': 'CreateGrafanaWorkspace',
+                'ParameterValue': props.get('CreateGrafanaWorkspace')
                 },
             ],
             Capabilities=['CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM', 'CAPABILITY_AUTO_EXPAND'],
@@ -290,20 +290,20 @@ def on_update(event):
                 'ParameterValue': props.get('GrafanaRole')
                 }, 
                 {
-                'ParameterKey': 'HyperPodObservabilityRoleType',
-                'ParameterValue': props.get('HyperPodObservabilityRoleType')
+                'ParameterKey': 'CreateHyperPodObservabilityRole',
+                'ParameterValue': props.get('CreateHyperPodObservabilityRole')
                 },
                 {
-                'ParameterKey': 'GrafanaRoleType',
-                'ParameterValue': props.get('GrafanaRoleType')
+                'ParameterKey': 'CreateGrafanaRole',
+                'ParameterValue': props.get('CreateGrafanaRole')
                 },                
                 {
-                'ParameterKey': 'PrometheusWorkspaceType',
-                'ParameterValue': props.get('PrometheusWorkspaceType')
+                'ParameterKey': 'CreatePrometheusWorkspace',
+                'ParameterValue': props.get('CreatePrometheusWorkspace')
                 },                
                 {
-                'ParameterKey': 'GrafanaWorkspaceType',
-                'ParameterValue': props.get('GrafanaWorkspaceType')
+                'ParameterKey': 'CreateGrafanaWorkspace',
+                'ParameterValue': props.get('CreateGrafanaWorkspace')
                 },
             ],
             Capabilities=['CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM', 'CAPABILITY_AUTO_EXPAND'],
