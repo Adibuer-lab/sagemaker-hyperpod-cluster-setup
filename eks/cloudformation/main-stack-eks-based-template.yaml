@@ -64,6 +64,29 @@ Metadata:
           - CreateSageMakerIAMRoleStack
           - SageMakerIAMRoleName
       - Label:
+          default: HyperPod Data Scientist Setup
+        Parameters:
+          - DataScientistRole1
+          - DataScientistRole1Namespaces
+          - DataScientistRole2
+          - DataScientistRole2Namespaces
+          - DataScientistRole3
+          - DataScientistRole3Namespaces
+          - DataScientistRole4
+          - DataScientistRole4Namespaces
+          - DataScientistRole5
+          - DataScientistRole5Namespaces
+          - DataScientistRole6
+          - DataScientistRole6Namespaces
+          - DataScientistRole7
+          - DataScientistRole7Namespaces
+          - DataScientistRole8
+          - DataScientistRole8Namespaces
+          - DataScientistRole9
+          - DataScientistRole9Namespaces
+          - DataScientistRole10
+          - DataScientistRole10Namespaces
+      - Label:
           default: Storage
         Parameters:
           - CreateFsxStack
@@ -225,6 +248,46 @@ Metadata:
         default: Create New IAM Role
       SageMakerIAMRoleName:
         default: IAM Role Name
+      DataScientistRole1:
+        default: Data Scientist Role 1
+      DataScientistRole1Namespaces:
+        default: Data Scientist Role 1 Namespaces
+      DataScientistRole2:
+        default: Data Scientist Role 2
+      DataScientistRole2Namespaces:
+        default: Data Scientist Role 2 Namespaces
+      DataScientistRole3:
+        default: Data Scientist Role 3
+      DataScientistRole3Namespaces:
+        default: Data Scientist Role 3 Namespaces
+      DataScientistRole4:
+        default: Data Scientist Role 4
+      DataScientistRole4Namespaces:
+        default: Data Scientist Role 4 Namespaces
+      DataScientistRole5:
+        default: Data Scientist Role 5
+      DataScientistRole5Namespaces:
+        default: Data Scientist Role 5 Namespaces
+      DataScientistRole6:
+        default: Data Scientist Role 6
+      DataScientistRole6Namespaces:
+        default: Data Scientist Role 6 Namespaces
+      DataScientistRole7:
+        default: Data Scientist Role 7
+      DataScientistRole7Namespaces:
+        default: Data Scientist Role 7 Namespaces
+      DataScientistRole8:
+        default: Data Scientist Role 8
+      DataScientistRole8Namespaces:
+        default: Data Scientist Role 8 Namespaces
+      DataScientistRole9:
+        default: Data Scientist Role 9
+      DataScientistRole9Namespaces:
+        default: Data Scientist Role 9 Namespaces
+      DataScientistRole10:
+        default: Data Scientist Role 10
+      DataScientistRole10Namespaces:
+        default: Data Scientist Role 10 Namespaces
       CreateFsxStack:
         default: Create New FSx for Lustre File System
       FsxFileSystemId:
@@ -419,7 +482,7 @@ Parameters:
     Description: Comma-separated list of private subnet IDs for EKS cluster.
   OnCreatePath:
     Type: String
-    Default: sagemaker-hyperpod-eks-bucket
+    Default: on_create.sh
     Description: >-
       The file name of lifecycle script for the general purpose instance group. This script runs during cluster
       creation.
@@ -602,6 +665,126 @@ Parameters:
     Type: String
     Default: ''
     Description: Custom tags for managing the SageMaker HyperPod cluster as an AWS resource.
+  DataScientistRole1:
+    Type: String
+    Default: ''
+    Description: >-
+      First HyperPod Data Scientist IAM role name. Model deployment permissions will be scoped to the specified
+      namespaces. (optional)
+  DataScientistRole1Namespaces:
+    Type: String
+    Default: ''
+    Description: >-
+      Comma-separated list of Kubernetes namespaces for DataScientistRole1. Model deployment permissions will be scoped
+      to these namespaces. (optional)
+  DataScientistRole2:
+    Type: String
+    Default: ''
+    Description: >-
+      Second HyperPod Data Scientist IAM role name. Model deployment permissions will be scoped to the specified
+      namespaces. (optional)
+  DataScientistRole2Namespaces:
+    Type: String
+    Default: ''
+    Description: >-
+      Comma-separated list of Kubernetes namespaces for DataScientistRole2. Model deployment permissions will be scoped
+      to these namespaces. (optional)
+  DataScientistRole3:
+    Type: String
+    Default: ''
+    Description: >-
+      Third HyperPod Data Scientist IAM role name. Model deployment permissions will be scoped to the specified
+      namespaces. (optional)
+  DataScientistRole3Namespaces:
+    Type: String
+    Default: ''
+    Description: >-
+      Comma-separated list of Kubernetes namespaces for DataScientistRole3. Model deployment permissions will be scoped
+      to these namespaces. (optional)
+  DataScientistRole4:
+    Type: String
+    Default: ''
+    Description: >-
+      Fourth HyperPod Data Scientist IAM role name. Model deployment permissions will be scoped to the specified
+      namespaces. (optional)
+  DataScientistRole4Namespaces:
+    Type: String
+    Default: ''
+    Description: >-
+      Comma-separated list of Kubernetes namespaces for DataScientistRole4. Model deployment permissions will be scoped
+      to these namespaces. (optional)
+  DataScientistRole5:
+    Type: String
+    Default: ''
+    Description: >-
+      Fifth HyperPod Data Scientist IAM role name. Model deployment permissions will be scoped to the specified
+      namespaces. (optional)
+  DataScientistRole5Namespaces:
+    Type: String
+    Default: ''
+    Description: >-
+      Comma-separated list of Kubernetes namespaces for DataScientistRole5. Model deployment permissions will be scoped
+      to these namespaces. (optional)
+  DataScientistRole6:
+    Type: String
+    Default: ''
+    Description: >-
+      Sixth HyperPod Data Scientist IAM role name. Model deployment permissions will be scoped to the specified
+      namespaces. (optional)
+  DataScientistRole6Namespaces:
+    Type: String
+    Default: ''
+    Description: >-
+      Comma-separated list of Kubernetes namespaces for DataScientistRole6. Model deployment permissions will be scoped
+      to these namespaces. (optional)
+  DataScientistRole7:
+    Type: String
+    Default: ''
+    Description: >-
+      Seventh HyperPod Data Scientist IAM role name. Model deployment permissions will be scoped to the specified
+      namespaces. (optional)
+  DataScientistRole7Namespaces:
+    Type: String
+    Default: ''
+    Description: >-
+      Comma-separated list of Kubernetes namespaces for DataScientistRole7. Model deployment permissions will be scoped
+      to these namespaces. (optional)
+  DataScientistRole8:
+    Type: String
+    Default: ''
+    Description: >-
+      Eighth HyperPod Data Scientist IAM role name. Model deployment permissions will be scoped to the specified
+      namespaces. (optional)
+  DataScientistRole8Namespaces:
+    Type: String
+    Default: ''
+    Description: >-
+      Comma-separated list of Kubernetes namespaces for DataScientistRole8. Model deployment permissions will be scoped
+      to these namespaces. (optional)
+  DataScientistRole9:
+    Type: String
+    Default: ''
+    Description: >-
+      Ninth HyperPod Data Scientist IAM role name. Model deployment permissions will be scoped to the specified
+      namespaces. (optional)
+  DataScientistRole9Namespaces:
+    Type: String
+    Default: ''
+    Description: >-
+      Comma-separated list of Kubernetes namespaces for DataScientistRole9. Model deployment permissions will be scoped
+      to these namespaces. (optional)
+  DataScientistRole10:
+    Type: String
+    Default: ''
+    Description: >-
+      Tenth HyperPod Data Scientist IAM role name. Model deployment permissions will be scoped to the specified
+      namespaces. (optional)
+  DataScientistRole10Namespaces:
+    Type: String
+    Default: ''
+    Description: >-
+      Comma-separated list of Kubernetes namespaces for DataScientistRole10. Model deployment permissions will be scoped
+      to these namespaces. (optional)
   FsxSubnetId:
     Type: String
     Default: ''
@@ -886,6 +1069,54 @@ Conditions:
       - Fn::Equals:
           - Ref: RigSettings1
           - '[]'
+  IsGammaStageCondition:
+    Fn::Equals:
+      - Ref: Stage
+      - gamma
+  DataScientistSetupCondition:
+    Fn::And:
+      - Condition: IsGammaStageCondition
+      - Fn::Or:
+          - Fn::Not:
+              - Fn::Equals:
+                  - Ref: DataScientistRole1
+                  - ''
+          - Fn::Not:
+              - Fn::Equals:
+                  - Ref: DataScientistRole2
+                  - ''
+          - Fn::Not:
+              - Fn::Equals:
+                  - Ref: DataScientistRole3
+                  - ''
+          - Fn::Not:
+              - Fn::Equals:
+                  - Ref: DataScientistRole4
+                  - ''
+          - Fn::Not:
+              - Fn::Equals:
+                  - Ref: DataScientistRole5
+                  - ''
+          - Fn::Not:
+              - Fn::Equals:
+                  - Ref: DataScientistRole6
+                  - ''
+          - Fn::Not:
+              - Fn::Equals:
+                  - Ref: DataScientistRole7
+                  - ''
+          - Fn::Not:
+              - Fn::Equals:
+                  - Ref: DataScientistRole8
+                  - ''
+          - Fn::Not:
+              - Fn::Equals:
+                  - Ref: DataScientistRole9
+                  - ''
+          - Fn::Not:
+              - Fn::Equals:
+                  - Ref: DataScientistRole10
+                  - ''
   CustomBucketCondition:
     Fn::Not:
       - Fn::Equals:
@@ -1794,6 +2025,82 @@ Resources:
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/ObservabilityCustomResource
     Condition: EnableObservabilityFeatureCondition
+  DataScientistSetupStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL:
+        Fn::If:
+          - CustomBucketCondition
+          - Fn::Sub: https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/data-scientist-setup-template.yaml
+          - Fn::Sub: >-
+              https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/data-scientist-setup-template.yaml
+      Parameters:
+        ResourceNamePrefix:
+          Ref: ResourceNamePrefix
+        EKSClusterName:
+          Fn::If:
+            - CreateEKSClusterStackCondition
+            - Fn::GetAtt:
+                - EKSClusterStack
+                - Outputs.EKSClusterName
+            - Ref: EKSClusterName
+        HPClusterArn:
+          Fn::If:
+            - CreateHyperPodClusterStackCondition
+            - Fn::GetAtt:
+                - HyperPodClusterStack
+                - Outputs.HyperPodClusterArn
+            - ''
+        DataScientistRole1:
+          Ref: DataScientistRole1
+        DataScientistRole1Namespaces:
+          Ref: DataScientistRole1Namespaces
+        DataScientistRole2:
+          Ref: DataScientistRole2
+        DataScientistRole2Namespaces:
+          Ref: DataScientistRole2Namespaces
+        DataScientistRole3:
+          Ref: DataScientistRole3
+        DataScientistRole3Namespaces:
+          Ref: DataScientistRole3Namespaces
+        DataScientistRole4:
+          Ref: DataScientistRole4
+        DataScientistRole4Namespaces:
+          Ref: DataScientistRole4Namespaces
+        DataScientistRole5:
+          Ref: DataScientistRole5
+        DataScientistRole5Namespaces:
+          Ref: DataScientistRole5Namespaces
+        DataScientistRole6:
+          Ref: DataScientistRole6
+        DataScientistRole6Namespaces:
+          Ref: DataScientistRole6Namespaces
+        DataScientistRole7:
+          Ref: DataScientistRole7
+        DataScientistRole7Namespaces:
+          Ref: DataScientistRole7Namespaces
+        DataScientistRole8:
+          Ref: DataScientistRole8
+        DataScientistRole8Namespaces:
+          Ref: DataScientistRole8Namespaces
+        DataScientistRole9:
+          Ref: DataScientistRole9
+        DataScientistRole9Namespaces:
+          Ref: DataScientistRole9Namespaces
+        DataScientistRole10:
+          Ref: DataScientistRole10
+        DataScientistRole10Namespaces:
+          Ref: DataScientistRole10Namespaces
+        CustomResourceS3Bucket:
+          Fn::If:
+            - CustomBucketCondition
+            - Ref: CustomBucketName
+            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
+    DependsOn:
+      - HyperPodClusterStack
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/DataScientistSetupStack
+    Condition: DataScientistSetupCondition
 Outputs:
   OutputVpcId:
     Value:
