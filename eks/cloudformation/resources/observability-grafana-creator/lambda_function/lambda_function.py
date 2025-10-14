@@ -77,7 +77,7 @@ def on_create():
         print(f"Created Grafana Workspace: {workspace_name}")
         response_data['WorkspaceId'] = response['workspace']['id']
         retries = 0
-        MAX_RETRIES = 20
+        MAX_RETRIES = 30
         WAIT_SECONDS = 15
         while True:
             try:
