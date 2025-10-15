@@ -200,6 +200,7 @@ def install_helm_chart():
             '--set', f"alb.vpcId={os.environ[VPC_ID]}",
             '--set', f"jumpstartGatedModelDownloadRoleArn={os.environ[JUMPSTART_GATED_ROLE_ARN]}",
             '--set', f"fsx.enabled=false",
+            '--set', f"cert-manager.enabled=false", # cert-manager is now installed through a separate stack to re-use between HP training and inference operators.
         ]
 
         # Execute the Helm install

@@ -183,7 +183,7 @@ def enrich_instance_groups(instance_groups, isRig=False):
 
 def get_tags_from_env():
     """
-    Get tags from environment variables
+    Get tags from environment variables and automatically add required SageMaker tag for HPTO
 
     - In JSON format: `CLUSTER_TAGS=[{"Key":"Environment","Value":"Production"}]`
     - Or as key-value pairs: `CLUSTER_TAGS=Environment=Production,Team=MLOps`
@@ -213,6 +213,30 @@ def get_tags_from_env():
                         tags.append({'Key': key.strip(), 'Value': value.strip()})
             except Exception as e:
                 print(f"Error parsing tags string: {str(e)}")
+    
+    # Check if HPTO is enabled and automatically add SageMaker=true tag if needed
+    # The main stack only passes 'true' when EnableHPTrainingOperatorFeatureCondition is met
+    is_hpto_enabled = os.environ.get('ENABLE_HP_TRAINING_OPERATOR_FEATURE', 'false').lower() == 'true'
+    
+    if is_hpto_enabled:
+        # Check if SageMaker tag already exists
+        sagemaker_tag_exists = False
+        for tag in tags:
+            if tag.get('Key') == 'SageMaker':
+                sagemaker_tag_exists = True
+                if tag.get('Value') != 'true':
+                    print(f"Warning: SageMaker tag exists with value '{tag.get('Value')}', but HPTO requires 'true'")
+                    # Update the existing tag to 'true'
+                    tag['Value'] = 'true'
+                    print("Updated SageMaker tag value to 'true' for HPTO compatibility")
+                else:
+                    print("SageMaker=true tag already present")
+                break
+        
+        # Add SageMaker=true tag if it doesn't exist
+        if not sagemaker_tag_exists:
+            tags.append({'Key': 'SageMaker', 'Value': 'true'})
+            print("Added required SageMaker=true tag as HP training operator requires it.")
     
     return tags
 
