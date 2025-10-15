@@ -1,0 +1,55 @@
+Description: HP training operator EKS Add-on Stack
+Parameters:
+  ResourceNamePrefix:
+    Type: String
+    Default: sagemaker-hyperpod-eks
+    Description: Prefix to be used for all resources created by this template.
+  EKSClusterName:
+    Type: String
+    Default: eks
+    Description: The name of the EKS cluster.
+  HptoIamRoleArn:
+    Type: String
+    Description: ARN of the HPTO IAM Role.
+Resources:
+  HptoPodIdentityAssociation:
+    Type: AWS::EKS::PodIdentityAssociation
+    Properties:
+      ClusterName:
+        Ref: EKSClusterName
+      Namespace: aws-hyperpod
+      RoleArn:
+        Ref: HptoIamRoleArn
+      ServiceAccount: hp-training-operator-controller-manager
+    Metadata:
+      aws:cdk:path: HptoEksAddonCfnTemplate/HptoPodIdentityAssociation
+  HptoAddon:
+    Type: AWS::EKS::Addon
+    Properties:
+      AddonName: amazon-sagemaker-hyperpod-training-operator
+      ClusterName:
+        Ref: EKSClusterName
+      ResolveConflicts: OVERWRITE
+    DependsOn:
+      - HptoPodIdentityAssociation
+    Metadata:
+      aws:cdk:path: HptoEksAddonCfnTemplate/HptoAddon
+Outputs:
+  HptoAddonArn:
+    Description: ARN of the HPTO EKS Add-on
+    Value:
+      Fn::GetAtt:
+        - HptoAddon
+        - Arn
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-HptoAddonArn
+  HptoPodIdentityAssociationArn:
+    Description: ARN of the HPTO Pod Identity Association
+    Value:
+      Fn::GetAtt:
+        - HptoPodIdentityAssociation
+        - AssociationArn
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-HptoPodIdentityAssociationArn

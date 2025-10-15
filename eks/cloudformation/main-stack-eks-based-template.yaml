@@ -16,6 +16,7 @@ Metadata:
           - Tags
           - EnableHPInferenceFeature
           - EnableObservabilityFeature
+          - EnableHPTrainingOperatorFeature
       - Label:
           default: HyperPod Cluster
         Parameters:
@@ -176,6 +177,8 @@ Metadata:
         default: Feature flag for enabling HP inference
       EnableObservabilityFeature:
         default: Feature flag for enabling observability
+      EnableHPTrainingOperatorFeature:
+        default: Feature flag for enabling HP training operator
       CustomBucketName:
         default: Custom S3 Bucket Name
       NodeRecovery:
@@ -372,6 +375,13 @@ Parameters:
       - 'true'
       - 'false'
     Description: Set to "true" to enable the HP observability feature, "false" otherwise.
+  EnableHPTrainingOperatorFeature:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Set to "true" to enable the HP training operator, "false" otherwise.
   CustomBucketName:
     Type: String
     Default: ''
@@ -1011,6 +1021,10 @@ Conditions:
           - Fn::Equals:
               - Ref: Stage
               - prod
+  EnableHPTrainingOperatorFeatureCondition:
+    Fn::Equals:
+      - Ref: EnableHPTrainingOperatorFeature
+      - 'true'
   CreateVPCStackCondition:
     Fn::Equals:
       - Ref: CreateVPCStack
@@ -1069,6 +1083,10 @@ Conditions:
       - Fn::Equals:
           - Ref: RigSettings1
           - '[]'
+  InstallCertManagerCondition:
+    Fn::Or:
+      - Condition: EnableHPInferenceFeatureCondition
+      - Condition: EnableHPTrainingOperatorFeatureCondition
   IsGammaStageCondition:
     Fn::Equals:
       - Ref: Stage
@@ -1523,6 +1541,8 @@ Resources:
             - CreateS3BucketStackCondition
             - on_create.sh
             - Ref: OnCreatePath
+        EnableHPTrainingOperatorFeature:
+          Ref: EnableHPTrainingOperatorFeature
         InstanceGroupSettings1:
           Ref: InstanceGroupSettings1
         InstanceGroupSettings2:
@@ -1618,6 +1638,38 @@ Resources:
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/HyperPodClusterStack
     Condition: CreateHyperPodClusterStackCondition
+  CertManagerStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL:
+        Fn::If:
+          - CustomBucketCondition
+          - Fn::Sub: https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/cert-manager-template.yaml
+          - Fn::Sub: >-
+              https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/cert-manager-template.yaml
+      Parameters:
+        ResourceNamePrefix:
+          Ref: ResourceNamePrefix
+        EKSClusterName:
+          Fn::If:
+            - CreateEKSClusterStackCondition
+            - Fn::GetAtt:
+                - EKSClusterStack
+                - Outputs.EKSClusterName
+            - Ref: EKSClusterName
+        HyperpodCliGithubRepoUrl:
+          Ref: HelmRepoUrl
+        CustomResourceS3Bucket:
+          Fn::If:
+            - CustomBucketCondition
+            - Ref: CustomBucketName
+            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
+    DependsOn:
+      - EKSClusterStack
+      - HyperPodClusterStack
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/CertManagerStack
+    Condition: InstallCertManagerCondition
   FsxStack:
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -1773,6 +1825,7 @@ Resources:
                 - ResourceNamePrefix:
                     Ref: ResourceNamePrefix
     DependsOn:
+      - CertManagerStack
       - HyperPodClusterStack
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/InferenceOperatorMainStack
@@ -1891,7 +1944,7 @@ Resources:
           PolicyName:
             Fn::Sub: ${ResourceNamePrefix}-CFNStack4
       RoleName:
-        Fn::Sub: ${ResourceNamePrefix}-ObservabilityCfnStackRole
+        Fn::Sub: ${ResourceNamePrefix}-ObsCfn
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/ObservabilityCustomResourceRole
     Condition: EnableObservabilityFeatureCondition
@@ -2101,6 +2154,36 @@ Resources:
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/DataScientistSetupStack
     Condition: DataScientistSetupCondition
+  HPTrainingOperatorMainStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL:
+        Fn::If:
+          - CustomBucketCondition
+          - Fn::Sub: https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/hpto-main-stack-template.yaml
+          - Fn::Sub: >-
+              https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/hpto-main-stack-template.yaml
+      Parameters:
+        ResourceNamePrefix:
+          Ref: ResourceNamePrefix
+        Stage:
+          Ref: Stage
+        CustomBucketName:
+          Ref: CustomBucketName
+        EKSClusterName:
+          Fn::If:
+            - CreateEKSClusterStackCondition
+            - Fn::GetAtt:
+                - EKSClusterStack
+                - Outputs.EKSClusterName
+            - Ref: EKSClusterName
+    DependsOn:
+      - CertManagerStack
+      - EKSClusterStack
+      - HyperPodClusterStack
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/HPTrainingOperatorMainStack
+    Condition: EnableHPTrainingOperatorFeatureCondition
 Outputs:
   OutputVpcId:
     Value:
@@ -2174,3 +2257,15 @@ Outputs:
         - ObservabilityCustomResource
         - StackId
     Condition: EnableObservabilityFeatureCondition
+  OutputHPTOIAMRoleArn:
+    Value:
+      Fn::GetAtt:
+        - HPTrainingOperatorMainStack
+        - Outputs.HPTOIAMRoleArn
+    Condition: EnableHPTrainingOperatorFeatureCondition
+  OutputHPTOIAMRoleName:
+    Value:
+      Fn::GetAtt:
+        - HPTrainingOperatorMainStack
+        - Outputs.HPTOIAMRoleName
+    Condition: EnableHPTrainingOperatorFeatureCondition

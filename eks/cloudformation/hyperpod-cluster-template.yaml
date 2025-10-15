@@ -72,6 +72,13 @@ Parameters:
     Type: String
     Default: ''
     Description: Custom tags for managing the SageMaker HyperPod cluster as an AWS resource.
+  EnableHPTrainingOperatorFeature:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Feature flag for enabling HP training operator.
   InstanceGroupSettings1:
     Type: String
     Default: '[]'
@@ -429,6 +436,8 @@ Resources:
               - Ref: HyperPodClusterRole
           AUTOSCALER_TYPE:
             Ref: AutoScalerType
+          ENABLE_HP_TRAINING_OPERATOR_FEATURE:
+            Ref: EnableHPTrainingOperatorFeature
           INSTANCE_GROUP_SETTINGS1:
             Ref: InstanceGroupSettings1
           RIG_SETTINGS1:
