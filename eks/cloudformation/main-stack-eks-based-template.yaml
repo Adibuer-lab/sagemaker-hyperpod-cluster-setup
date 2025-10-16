@@ -1944,7 +1944,7 @@ Resources:
           PolicyName:
             Fn::Sub: ${ResourceNamePrefix}-CFNStack4
       RoleName:
-        Fn::Sub: ${ResourceNamePrefix}-ObsCfn
+        Fn::Sub: ${ResourceNamePrefix}-ObsRole
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/ObservabilityCustomResourceRole
     Condition: EnableObservabilityFeatureCondition
@@ -1968,7 +1968,7 @@ Resources:
           PARTITION:
             Fn::Sub: ${AWS::Partition}
       FunctionName:
-        Fn::Sub: ${ResourceNamePrefix}-observability-cfn-func
+        Fn::Sub: ${ResourceNamePrefix}-ObsFunc
       Handler: lambda_function.lambda_handler
       MemorySize: 2048
       Role:
