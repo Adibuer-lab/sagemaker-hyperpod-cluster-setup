@@ -319,9 +319,16 @@ def on_create():
         return response_data
 
     except subprocess.CalledProcessError as e:
-        raise Exception(f"Command failed: {e.cmd}. Return code: {e.returncode}")
+        print(f"Warning: Command failed during cert-manager installation: {e.cmd}. Return code: {e.returncode}")
+        response_data["CertManagerInstalled"] = False
+        response_data["Reason"] = "cert-manager installation failed but continuing to prevent main stack rollback"
+        return response_data
+    
     except Exception as e:
-        raise Exception(f"Failed to handle cert-manager: {str(e)}")
+        print(f"Warning: Failed to handle cert-manager installation: {str(e)}")
+        response_data["CertManagerInstalled"] = False
+        response_data["Reason"] = "cert-manager installation failed but continuing to prevent main stack rollback"
+        return response_data
 
 
 def update_cert_manager():
