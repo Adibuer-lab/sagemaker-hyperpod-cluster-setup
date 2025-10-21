@@ -314,45 +314,45 @@ Metadata:
       HyperPodClusterName:
         default: HyperPod Cluster Name
       PrometheusWorkspaceId:
-        default: PrometheusWorkspaceId
+        default: Prometheus Workspace Id
       PrometheusWorkspaceArn:
-        default: PrometheusWorkspaceArn
+        default: Prometheus Workspace Arn
       PrometheusWorkspaceEndpoint:
-        default: PrometheusWorkspaceEndpoint
+        default: Prometheus Workspace Endpoint
       GrafanaWorkspaceId:
-        default: GrafanaWorkspaceId
+        default: Grafana Workspace Id
       GrafanaWorkspaceArn:
-        default: GrafanaWorkspaceArn
+        default: Grafana Workspace Arn
       GrafanaWorkspaceName:
-        default: GrafanaWorkspaceName
+        default: Grafana Workspace Name
       TrainingMetricLevel:
-        default: TrainingMetricLevel
+        default: Training Metric Level
       TaskGovernanceMetricLevel:
-        default: TaskGovernanceMetricLevel
+        default: Task Governance  Metric Level
       ClusterMetricLevel:
-        default: ClusterMetricLevel
+        default: Cluster Metric Level
       NodeMetricLevel:
-        default: NodeMetricLevel
+        default: Node Metric Level
       AcceleratedComputeMetricLevel:
-        default: AcceleratedComputeMetricLevel
+        default: Accelerated Compute Metric Level
       ScalingMetricLevel:
-        default: ScalingMetricLevel
+        default: Scaling Metric Level
       NetworkMetricLevel:
-        default: NetworkMetricLevel
+        default: Network Metric Level
       Logging:
         default: Logging
       HyperPodObservabilityRole:
-        default: HyperPodObservabilityRole
+        default: HyperPod Observability Role
       GrafanaRole:
-        default: GrafanaRole
+        default: Grafana Role
       CreateHyperPodObservabilityRole:
-        default: CreateHyperPodObservabilityRole
+        default: Create HyperPod Observability Role
       CreateGrafanaRole:
-        default: CreateGrafanaRole
+        default: Create Grafana Role
       CreatePrometheusWorkspace:
-        default: CreatePrometheusWorkspace
+        default: Create Prometheus Workspace
       CreateGrafanaWorkspace:
-        default: CreateGrafanaWorkspace
+        default: Create Grafana Workspace
 Parameters:
   Stage:
     Type: String
@@ -899,28 +899,28 @@ Parameters:
     Description: The role to be used with Hyperpod Observability Grafana Custom Resources
   CreateHyperPodObservabilityRole:
     Type: String
-    Default: 'true'
+    Default: 'false'
     AllowedValues:
       - 'true'
       - 'false'
     Description: Specify whether to create new role for Hyperpod Observability AddOn
   CreateGrafanaRole:
     Type: String
-    Default: 'true'
+    Default: 'false'
     AllowedValues:
       - 'true'
       - 'false'
     Description: Specify whether to create new role for Hyperpod Observability Grafana Custom Resources
   CreatePrometheusWorkspace:
     Type: String
-    Default: 'true'
+    Default: 'false'
     AllowedValues:
       - 'true'
       - 'false'
     Description: Specify whether to create new prometheus workspace
   CreateGrafanaWorkspace:
     Type: String
-    Default: 'true'
+    Default: 'false'
     AllowedValues:
       - 'true'
       - 'false'
