@@ -1017,10 +1017,6 @@ Conditions:
               - isAllowed
               - DefaultValue: 'false'
           - 'true'
-      - Fn::Not:
-          - Fn::Equals:
-              - Ref: Stage
-              - prod
   EnableHPTrainingOperatorFeatureCondition:
     Fn::Equals:
       - Ref: EnableHPTrainingOperatorFeature
@@ -1087,54 +1083,48 @@ Conditions:
     Fn::Or:
       - Condition: EnableHPInferenceFeatureCondition
       - Condition: EnableHPTrainingOperatorFeatureCondition
-  IsGammaStageCondition:
-    Fn::Equals:
-      - Ref: Stage
-      - gamma
   DataScientistSetupCondition:
-    Fn::And:
-      - Condition: IsGammaStageCondition
-      - Fn::Or:
-          - Fn::Not:
-              - Fn::Equals:
-                  - Ref: DataScientistRole1
-                  - ''
-          - Fn::Not:
-              - Fn::Equals:
-                  - Ref: DataScientistRole2
-                  - ''
-          - Fn::Not:
-              - Fn::Equals:
-                  - Ref: DataScientistRole3
-                  - ''
-          - Fn::Not:
-              - Fn::Equals:
-                  - Ref: DataScientistRole4
-                  - ''
-          - Fn::Not:
-              - Fn::Equals:
-                  - Ref: DataScientistRole5
-                  - ''
-          - Fn::Not:
-              - Fn::Equals:
-                  - Ref: DataScientistRole6
-                  - ''
-          - Fn::Not:
-              - Fn::Equals:
-                  - Ref: DataScientistRole7
-                  - ''
-          - Fn::Not:
-              - Fn::Equals:
-                  - Ref: DataScientistRole8
-                  - ''
-          - Fn::Not:
-              - Fn::Equals:
-                  - Ref: DataScientistRole9
-                  - ''
-          - Fn::Not:
-              - Fn::Equals:
-                  - Ref: DataScientistRole10
-                  - ''
+    Fn::Or:
+      - Fn::Not:
+          - Fn::Equals:
+              - Ref: DataScientistRole1
+              - ''
+      - Fn::Not:
+          - Fn::Equals:
+              - Ref: DataScientistRole2
+              - ''
+      - Fn::Not:
+          - Fn::Equals:
+              - Ref: DataScientistRole3
+              - ''
+      - Fn::Not:
+          - Fn::Equals:
+              - Ref: DataScientistRole4
+              - ''
+      - Fn::Not:
+          - Fn::Equals:
+              - Ref: DataScientistRole5
+              - ''
+      - Fn::Not:
+          - Fn::Equals:
+              - Ref: DataScientistRole6
+              - ''
+      - Fn::Not:
+          - Fn::Equals:
+              - Ref: DataScientistRole7
+              - ''
+      - Fn::Not:
+          - Fn::Equals:
+              - Ref: DataScientistRole8
+              - ''
+      - Fn::Not:
+          - Fn::Equals:
+              - Ref: DataScientistRole9
+              - ''
+      - Fn::Not:
+          - Fn::Equals:
+              - Ref: DataScientistRole10
+              - ''
   CustomBucketCondition:
     Fn::Not:
       - Fn::Equals:
