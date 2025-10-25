@@ -13,14 +13,20 @@ ACCOUNT_ID = 'ACCOUNT_ID'
 HYPERPOD_CLUSTER_ARN = 'HYPERPOD_CLUSTER_ARN'
 EKS_CLUSTER_ARN = 'EKS_CLUSTER_ARN'
 
-# Fixed policy name for data scientist access
-HYPERPOD_UI_ACCESS_POLICY_NAME = 'HyperPodDeploymentUIAccessInlinePolicy'
-
 # Base names for Kubernetes groups (will be numbered per mapping)
 KUBERNETES_GROUP_BASE_NAMES = [
     'hyperpod-data-scientist-namespace-level',
     'hyperpod-data-scientist-cluster-level'
 ]
+
+IAM_POLICY_BASE_NAME = "HyperPodDataScientistUI"
+
+# Policy name function for data scientist access (cluster-specific)
+def get_policy_name(cluster_name: str) -> str:
+    """
+    Generate cluster-specific policy name.
+    """
+    return f'{IAM_POLICY_BASE_NAME}-{cluster_name}'
 
 
 def get_kubernetes_groups_for_setup(setup_index):
@@ -123,11 +129,19 @@ def resolve_role_from_mapping(mapping):
     raise Exception("roleName not provided in mapping")
 
 
-def attach_hyperpod_policy(role_name, hyperpod_cluster_arn, eks_cluster_arn):
+def attach_hyperpod_policy(
+    role_name: str,
+    cluster_name: str,
+    eks_cluster_arn: str,
+    hyperpod_cluster_arn: str
+):
     """
     Attach the HyperPod UI access policy to the data scientist role
     """
     print(f"Attaching HyperPod UI access policy to role: {role_name}")
+
+    # Get cluster-specific policy name
+    policy_name = get_policy_name(cluster_name)
 
     # Create the policy document based on AWS documentation
     policy_document = {
@@ -175,10 +189,10 @@ def attach_hyperpod_policy(role_name, hyperpod_cluster_arn, eks_cluster_arn):
         iam = boto3.client('iam')
         iam.put_role_policy(
             RoleName=role_name,
-            PolicyName=HYPERPOD_UI_ACCESS_POLICY_NAME,
+            PolicyName=policy_name,
             PolicyDocument=json.dumps(policy_document)
         )
-        print(f"Successfully attached policy '{HYPERPOD_UI_ACCESS_POLICY_NAME}' to role '{role_name}'")
+        print(f"Successfully attached policy '{policy_name}' to role '{role_name}'")
         
     except ClientError as e:
         raise Exception(f"Failed to attach policy to role '{role_name}': {str(e)}")
@@ -457,7 +471,7 @@ def process_single_setup(mapping, index, cluster_name, hyperpod_cluster_arn, eks
         print(f"Processing mapping {index}: Role={role_name}, Namespaces={namespaces}")
         
         # Attach HyperPod UI access policy
-        attach_hyperpod_policy(role_name, hyperpod_cluster_arn, eks_cluster_arn)
+        attach_hyperpod_policy(role_name, cluster_name, eks_cluster_arn, hyperpod_cluster_arn)
         
         # Get unique Kubernetes groups for this setup
         kubernetes_groups = get_kubernetes_groups_for_setup(index)
@@ -554,23 +568,26 @@ def on_update():
     raise NotImplementedError
 
 
-def cleanup_resources(role_name, cluster_name):
+def cleanup_resources(role_name: str, cluster_name: str):
     """
     Clean up data scientist setup resources
     """
     print(f"Cleaning up data scientist setup for role: {role_name}")
     
+    # Get cluster-specific policy name
+    policy_name = get_policy_name(cluster_name)
+
     # Remove IAM policy
     try:
         iam = boto3.client('iam')
         iam.delete_role_policy(
             RoleName=role_name,
-            PolicyName=HYPERPOD_UI_ACCESS_POLICY_NAME
+            PolicyName=policy_name
         )
-        print(f"Removed policy '{HYPERPOD_UI_ACCESS_POLICY_NAME}' from role '{role_name}'")
+        print(f"Removed policy '{policy_name}' from role '{role_name}'")
     except ClientError as e:
         if e.response['Error']['Code'] == 'NoSuchEntity':
-            print(f"Policy '{HYPERPOD_UI_ACCESS_POLICY_NAME}' not found on role '{role_name}'")
+            print(f"Policy '{policy_name}' not found on role '{role_name}'")
         else:
             print(f"Warning: Failed to remove policy from role '{role_name}': {str(e)}")
     
