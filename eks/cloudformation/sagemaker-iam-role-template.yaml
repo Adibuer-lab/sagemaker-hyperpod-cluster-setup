@@ -27,13 +27,46 @@ Parameters:
   RigS3BucketName:
     Type: String
     Default: ''
-    Description: The name of the S3 bucket used to store the RIG resources.
+    Description: The name of the S3 bucket used to store the RIG input resources.
+  RigS3OutputBucketName:
+    Type: String
+    Default: ''
+    Description: The name of the S3 bucket used to store the RIG output resources.
+  CreateRIG:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Whether to create RIG resources
+  HasGatedAccess:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Set to "true" to enable RIG gated access, "false" otherwise.
 Conditions:
   HasRigS3Bucket:
     Fn::Not:
       - Fn::Equals:
           - Ref: RigS3BucketName
           - ''
+  HasRigS3OutputBucket:
+    Fn::Not:
+      - Fn::Equals:
+          - Ref: RigS3OutputBucketName
+          - ''
+  ShouldCreateRIG:
+    Fn::And:
+      - Fn::Equals:
+          - Ref: CreateRIG
+          - 'true'
+      - Condition: HasRigS3Bucket
+  HasGatedAccessCondition:
+    Fn::Equals:
+      - Ref: HasGatedAccess
+      - 'true'
   HasSubnet1:
     Fn::Not:
       - Fn::Equals:
@@ -262,14 +295,8 @@ Resources:
                   - s3:ListBucket
                   - s3:GetObject
                 Resource:
-                  Fn::If:
-                    - HasRigS3Bucket
-                    - - Fn::Sub: arn:aws:s3:::${S3BucketName}
-                      - Fn::Sub: arn:aws:s3:::${S3BucketName}/*
-                      - Fn::Sub: arn:aws:s3:::${RigS3BucketName}
-                      - Fn::Sub: arn:aws:s3:::${RigS3BucketName}/*
-                    - - Fn::Sub: arn:aws:s3:::${S3BucketName}
-                      - Fn::Sub: arn:aws:s3:::${S3BucketName}/*
+                  - Fn::Sub: arn:aws:s3:::${S3BucketName}
+                  - Fn::Sub: arn:aws:s3:::${S3BucketName}/*
           PolicyName:
             Fn::Sub: ${ResourceNamePrefix}-Policy
       RoleName:
@@ -280,6 +307,46 @@ Resources:
             Fn::Sub: ${ResourceNamePrefix}ExecRole
     Metadata:
       aws:cdk:path: SageMakerIamRoleCfnTemplate/ExecutionRole
+  RIGPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:ListBucket
+              - s3:GetObject
+            Resource:
+              - Fn::Sub: arn:aws:s3:::${RigS3BucketName}
+              - Fn::Sub: arn:aws:s3:::${RigS3BucketName}/*
+          - Fn::If:
+              - HasGatedAccessCondition
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - arn:aws:s3:*:334772094012:accesspoint/advanced-model-customization-recipes-*/*
+                  - arn:aws:s3:::advanced-model-customization-recipes*/*
+              - Ref: AWS::NoValue
+          - Fn::If:
+              - HasRigS3OutputBucket
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - Fn::Sub: arn:aws:s3:::${RigS3OutputBucketName}
+                  - Fn::Sub: arn:aws:s3:::${RigS3OutputBucketName}/*
+              - Ref: AWS::NoValue
+      PolicyName:
+        Fn::Sub: ${ResourceNamePrefix}-RIG-Policy
+      Roles:
+        - Ref: ExecutionRole
+    Metadata:
+      aws:cdk:path: SageMakerIamRoleCfnTemplate/RIGPolicy
+    Condition: ShouldCreateRIG
   ConditionalPolicySubnet1:
     Type: AWS::IAM::Policy
     Properties:

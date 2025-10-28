@@ -64,6 +64,7 @@ Metadata:
         Parameters:
           - CreateSageMakerIAMRoleStack
           - SageMakerIAMRoleName
+          - HasGatedAccess
       - Label:
           default: HyperPod Data Scientist Setup
         Parameters:
@@ -251,6 +252,8 @@ Metadata:
         default: Create New IAM Role
       SageMakerIAMRoleName:
         default: IAM Role Name
+      HasGatedAccess:
+        default: Enable if RIG has gated access
       DataScientistRole1:
         default: Data Scientist Role 1
       DataScientistRole1Namespaces:
@@ -382,6 +385,13 @@ Parameters:
       - 'true'
       - 'false'
     Description: Set to "true" to enable the HP training operator, "false" otherwise.
+  HasGatedAccess:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Set to "true" to if RIG has gated access, "false" otherwise.
   CustomBucketName:
     Type: String
     Default: ''
@@ -670,7 +680,11 @@ Parameters:
   RigS3BucketName:
     Type: String
     Default: ''
-    Description: The name of the S3 bucket used to store the RIG resources.
+    Description: The name of the S3 bucket used to store the RIG input resources.
+  RigS3OutputBucketName:
+    Type: String
+    Default: ''
+    Description: The name of the S3 bucket used to store the RIG output resources.
   Tags:
     Type: String
     Default: ''
@@ -1377,6 +1391,8 @@ Resources:
             - Ref: S3BucketName
         RigS3BucketName:
           Ref: RigS3BucketName
+        RigS3OutputBucketName:
+          Ref: RigS3OutputBucketName
         EKSClusterName:
           Fn::If:
             - CreateEKSClusterStackCondition
@@ -1405,6 +1421,13 @@ Resources:
                 - PrivateSubnetStack
                 - Outputs.PrivateSubnetIds
             - Ref: PrivateSubnetIds
+        CreateRIG:
+          Fn::If:
+            - CreateRigCondition
+            - 'true'
+            - 'false'
+        HasGatedAccess:
+          Ref: HasGatedAccess
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/SageMakerIAMRoleStack
     Condition: CreateSageMakerIAMRoleStackCondition
