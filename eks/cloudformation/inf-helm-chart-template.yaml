@@ -127,7 +127,7 @@ Resources:
             Ref: AWS::AccountId
           HYPERPOD_CLI_GITHUB_REPO_URL:
             Ref: HelmRepoUrl
-          HYPERPOD_CLI_GITHUB_REPO_REVISION: 3d2049bd20a940aeb8fdfbbfb507410cbeddb0fe
+          HYPERPOD_CLI_GITHUB_REPO_REVISION: 0ae955c8f6af3153829ecc0c59d3bd499cac91e9
           CHART_PATH:
             Ref: HelmRepoPath
           NAMESPACE:
