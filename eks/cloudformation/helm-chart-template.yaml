@@ -137,7 +137,7 @@ Resources:
           GITHUB_REPO_REVISION:
             Fn::If:
               - CreateRIGCondition
-              - 520886bbc1a0494c61d2c78dac6027429475d696
+              - c5275ddbbca58164d1f5bd3a2811e0fc952f7ff4
               - 0ae955c8f6af3153829ecc0c59d3bd499cac91e9
           CHART_PATH:
             Ref: HelmRepoPath
