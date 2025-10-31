@@ -1174,6 +1174,14 @@ Mappings:
       isAllowed: 'true'
     sa-east-1:
       isAllowed: 'true'
+    us-west-1:
+      isAllowed: 'true'
+    ap-southeast-3:
+      isAllowed: 'true'
+    ap-southeast-4:
+      isAllowed: 'true'
+    eu-south-2:
+      isAllowed: 'true'
 Resources:
   VPCStack:
     Type: AWS::CloudFormation::Stack
