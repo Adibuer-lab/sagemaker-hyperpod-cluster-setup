@@ -173,9 +173,41 @@ def install_helm_chart():
         # Specify revision
         subprocess.run(['git', '-C', '/tmp/helm-charts', 'checkout', os.environ['GITHUB_REPO_REVISION']], check=True)
 
+        # Update the gpu operator dependencies
+        gpu_operator_path = f"/tmp/helm-charts/{os.environ['CHART_PATH']}/charts/gpu-operator"
+        if os.path.exists(gpu_operator_path):
+            subprocess.run(['helm', 'dependency', 'update', gpu_operator_path], check=True)
+        else:
+            print(f"Warning: Gpu operator folder {gpu_operator_path} not found. Proceeding without it.")
+        
+        
+
         # Update dependencies
         subprocess.run(['helm', 'dependency', 'update', f"/tmp/helm-charts/{os.environ['CHART_PATH']}"], check=True)
 
+        
+
+        # Process OPERATORS environment variable
+        operators = os.environ['OPERATORS']
+        
+        # Check if gpu-operator.enabled=true is present
+        if "gpu-operator.enabled=true" in operators:
+            # Add nvidia-device-plugin.devicePlugin.enabled=false if not already present
+            if "nvidia-device-plugin.devicePlugin.enabled=" not in operators:
+                operators = operators + ",nvidia-device-plugin.devicePlugin.enabled=false"
+            else:
+                # Replace existing nvidia-device-plugin setting with enabled=false
+                parts = operators.split(',')
+                for i, part in enumerate(parts):
+                    if part.startswith("nvidia-device-plugin.devicePlugin.enabled="):
+                        parts[i] = "nvidia-device-plugin.devicePlugin.enabled=false"
+                operators = ",".join(parts)
+            
+            print("Detected gpu-operator.enabled=true, setting nvidia-device-plugin.devicePlugin.enabled=false")
+
+        # Define the regional values file path
+        regional_values_file = f"/tmp/helm-charts/{os.environ['CHART_PATH']}/regional-values/values-{os.environ['AWS_REGION']}.yaml"
+        
         # Install the Helm chart
         install_cmd = [
             'helm', 'install',
@@ -183,8 +215,15 @@ def install_helm_chart():
             f"/tmp/helm-charts/{os.environ['CHART_PATH']}",
             '--namespace', os.environ['NAMESPACE'],
             '--set', f'health-monitoring-agent.region={os.environ['AWS_REGION']}',
-            '--set', os.environ['OPERATORS']
+            '--set', operators
         ]
+        
+        # Check if the regional values file exists and include it in the command if it does
+        if os.path.exists(regional_values_file):
+            install_cmd.insert(4, '-f')
+            install_cmd.insert(5, regional_values_file)
+        else:
+            print(f"Warning: Regional values file {regional_values_file} not found. Proceeding without it.")
         subprocess.run(install_cmd, check=True)
 
         if os.environ['CREATE_RIG'] == 'true':
@@ -273,10 +312,20 @@ def update_helm_chart():
 
         # Specify revision
         subprocess.run(['git', '-C', '/tmp/helm-charts', 'checkout', os.environ['GITHUB_REPO_REVISION']], check=True)
-
+        
+        # Update the gpu operator dependencies
+        gpu_operator_path = f"/tmp/helm-charts/{os.environ['CHART_PATH']}/charts/gpu-operator"
+        if os.path.exists(gpu_operator_path):
+            subprocess.run(['helm', 'dependency', 'update', gpu_operator_path], check=True)
+        else:
+            print(f"Warning: Gpu operator folder {gpu_operator_path} not found. Proceeding without it.")
+        
         # Update dependencies if any
         subprocess.run(['helm', 'dependency', 'update', f"/tmp/helm-charts/{os.environ['CHART_PATH']}"], check=True)
 
+        # Define the regional values file path
+        regional_values_file = f"/tmp/helm-charts/{os.environ['CHART_PATH']}/regional-values/values-{os.environ['AWS_REGION']}.yaml"
+        
         # Upgrade the release
         upgrade_cmd = [
             'helm', 'upgrade', '--install',
@@ -284,6 +333,13 @@ def update_helm_chart():
             f"/tmp/helm-charts/{os.environ['CHART_PATH']}",
             '--namespace', os.environ['NAMESPACE'],
         ]
+        
+        # Check if the regional values file exists and include it in the command if it does
+        if os.path.exists(regional_values_file):
+            upgrade_cmd.insert(4, '-f')
+            upgrade_cmd.insert(5, regional_values_file)
+        else:
+            print(f"Warning: Regional values file {regional_values_file} not found. Proceeding without it.")
         subprocess.run(upgrade_cmd, check=True)
 
         if os.environ['CREATE_RIG'] == 'true':
