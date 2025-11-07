@@ -22,6 +22,7 @@ Metadata:
         Parameters:
           - CreateHyperPodClusterStack
           - HyperPodClusterName
+          - CreateTaskGovernanceClusterPolicyStack
       - Label:
           default: Networking
         Parameters:
@@ -316,6 +317,8 @@ Metadata:
         default: Create HyperPod Cluster
       HyperPodClusterName:
         default: HyperPod Cluster Name
+      CreateTaskGovernanceClusterPolicyStack:
+        default: Create Cluster Policy
       PrometheusWorkspaceId:
         default: Prometheus Workspace Id
       PrometheusWorkspaceArn:
@@ -1007,6 +1010,13 @@ Parameters:
       - 'true'
       - 'false'
     Description: Boolean to Create HyperPod Cluster Stack
+  CreateTaskGovernanceClusterPolicyStack:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Boolean to Create Cluster Policy Stack
   CreateFsxStack:
     Type: String
     Default: 'true'
@@ -1144,6 +1154,25 @@ Conditions:
       - Fn::Equals:
           - Ref: CustomBucketName
           - ''
+  EnableTaskGovernanceClusterPolicyLambdaCondition:
+    Fn::And:
+      - Fn::Equals:
+          - Ref: CreateEKSClusterStack
+          - 'true'
+      - Fn::Equals:
+          - Ref: CreateTaskGovernanceClusterPolicyStack
+          - 'true'
+  EnableTaskGovernanceClusterPolicyCondition:
+    Fn::And:
+      - Fn::Equals:
+          - Ref: CreateEKSClusterStack
+          - 'true'
+      - Fn::Equals:
+          - Ref: CreateHyperPodClusterStack
+          - 'true'
+      - Fn::Equals:
+          - Ref: CreateTaskGovernanceClusterPolicyStack
+          - 'true'
 Mappings:
   AMPRegionMapping:
     us-east-1:
@@ -1684,6 +1713,61 @@ Resources:
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/CertManagerStack
     Condition: InstallCertManagerCondition
+  TaskGovernanceClusterPolicyLambdaStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL:
+        Fn::If:
+          - CustomBucketCondition
+          - Fn::Sub: >-
+              https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/task-governance-cluster-policy-lambda-template.yaml
+          - Fn::Sub: >-
+              https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/task-governance-cluster-policy-lambda-template.yaml
+      Parameters:
+        Stage:
+          Ref: Stage
+        CustomResourceS3Bucket:
+          Fn::If:
+            - CustomBucketCondition
+            - Ref: CustomBucketName
+            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
+    DependsOn:
+      - EKSClusterStack
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/TaskGovernanceClusterPolicyLambdaStack
+    Condition: EnableTaskGovernanceClusterPolicyLambdaCondition
+  TaskGovernanceClusterPolicyStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL:
+        Fn::If:
+          - CustomBucketCondition
+          - Fn::Sub: >-
+              https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/task-governance-cluster-policy-template.yaml
+          - Fn::Sub: >-
+              https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/task-governance-cluster-policy-template.yaml
+      Parameters:
+        EKSClusterName:
+          Fn::If:
+            - CreateEKSClusterStackCondition
+            - Fn::GetAtt:
+                - EKSClusterStack
+                - Outputs.EKSClusterName
+            - Ref: EKSClusterName
+        HyperPodClusterName:
+          Fn::If:
+            - CreateHyperPodClusterStackCondition
+            - Fn::GetAtt:
+                - HyperPodClusterStack
+                - Outputs.HyperPodClusterName
+            - Ref: HyperPodClusterName
+    DependsOn:
+      - EKSClusterStack
+      - HyperPodClusterStack
+      - TaskGovernanceClusterPolicyLambdaStack
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/TaskGovernanceClusterPolicyStack
+    Condition: EnableTaskGovernanceClusterPolicyCondition
   FsxStack:
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -2199,6 +2283,26 @@ Resources:
       aws:cdk:path: MainEksBasedCfnTemplate/HPTrainingOperatorMainStack
     Condition: EnableHPTrainingOperatorFeatureCondition
 Outputs:
+  TaskGovernanceClusterPolicyLambdaArn:
+    Value:
+      Fn::GetAtt:
+        - TaskGovernanceClusterPolicyLambdaStack
+        - Outputs.TaskGovernancePolicyLambdaArn
+    Condition: EnableTaskGovernanceClusterPolicyLambdaCondition
+  ClusterSchedulerConfigArn:
+    Description: ARN of the cluster scheduler configuration
+    Value:
+      Fn::GetAtt:
+        - TaskGovernanceClusterPolicyStack
+        - Outputs.ClusterSchedulerConfigArn
+    Condition: EnableTaskGovernanceClusterPolicyCondition
+  ClusterSchedulerConfigId:
+    Description: ID of the cluster scheduler configuration
+    Value:
+      Fn::GetAtt:
+        - TaskGovernanceClusterPolicyStack
+        - Outputs.ClusterSchedulerConfigId
+    Condition: EnableTaskGovernanceClusterPolicyCondition
   OutputVpcId:
     Value:
       Fn::GetAtt:

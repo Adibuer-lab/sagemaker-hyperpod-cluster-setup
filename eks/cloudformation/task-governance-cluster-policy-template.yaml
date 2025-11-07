@@ -1,0 +1,73 @@
+Parameters:
+  EKSClusterName:
+    Type: String
+    Description: Name of the EKS cluster
+  HyperPodClusterName:
+    Type: String
+    Description: Name of the HyperPod cluster
+Resources:
+  TaskGovernanceAddOn:
+    Type: AWS::EKS::Addon
+    Properties:
+      AddonName: amazon-sagemaker-hyperpod-taskgovernance
+      ClusterName:
+        Ref: EKSClusterName
+      ResolveConflicts: OVERWRITE
+    Metadata:
+      aws:cdk:path: TaskGovernanceClusterPolicyCfnTemplate/TaskGovernanceAddOn
+  ClusterSchedulerConfig:
+    Type: Custom::ClusterSchedulerConfig
+    Properties:
+      ServiceToken:
+        Fn::ImportValue: TaskGovernanceAddonLambdaArn
+      ClusterArn:
+        Fn::Sub:
+          - arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:cluster/${ClusterName}
+          - ClusterName:
+              Fn::Select:
+                - 1
+                - Fn::Split:
+                    - cluster/
+                    - Fn::Join:
+                        - ''
+                        - - ''
+                          - Ref: HyperPodClusterName
+      Name:
+        Fn::Sub: ${EKSClusterName}-scheduler-config
+      Description: >-
+        Cluster configuration policy to streamline priority for tasks and idle compute management with first-come,
+        first-served allocation for idle compute
+      SchedulerConfig:
+        FairShare: Disabled
+        PriorityClasses:
+          - Name: inference
+            Weight: 100
+          - Name: experimentation
+            Weight: 90
+          - Name: training
+            Weight: 80
+          - Name: fine-tuning
+            Weight: 70
+          - Name: interactive
+            Weight: 60
+    DependsOn:
+      - TaskGovernanceAddOn
+    Metadata:
+      aws:cdk:path: TaskGovernanceClusterPolicyCfnTemplate/ClusterSchedulerConfig
+Outputs:
+  ClusterSchedulerConfigArn:
+    Description: ARN of the cluster scheduler configuration
+    Value:
+      Fn::GetAtt:
+        - ClusterSchedulerConfig
+        - ClusterSchedulerConfigArn
+  ClusterSchedulerConfigId:
+    Description: ID of the cluster scheduler configuration
+    Value:
+      Fn::GetAtt:
+        - ClusterSchedulerConfig
+        - ClusterSchedulerConfigId
+  TaskGovernanceAddonName:
+    Description: Name of the task governance addon
+    Value:
+      Ref: TaskGovernanceAddOn
