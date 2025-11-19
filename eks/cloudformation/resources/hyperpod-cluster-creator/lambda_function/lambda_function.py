@@ -181,6 +181,57 @@ def enrich_instance_groups(instance_groups, isRig=False):
     
     return instance_groups
 
+def get_tiered_storage_config_from_env():
+    """
+    Get tiered storage configuration from environment variables
+    
+    Expected format:
+    {
+        "InstanceMemoryAllocationPercentage": Integer (0-100),
+        "Mode": String ("Enabled" or "Disabled")
+    }
+    
+    Returns:
+    dict: Tiered storage configuration dictionary, or None if not provided or invalid
+    """
+    tiered_storage_config_str = os.environ.get('TIERED_STORAGE_CONFIG', '')
+    
+    if tiered_storage_config_str:
+        try:
+            tiered_storage_config = json.loads(tiered_storage_config_str)
+            print(f"Parsed tiered storage config: {tiered_storage_config}")
+            
+            # Validate the structure
+            if not isinstance(tiered_storage_config, dict):
+                print(f"Error: TieredStorageConfig must be a dictionary, got {type(tiered_storage_config)}")
+                return None
+            
+            # Validate required fields
+            if 'InstanceMemoryAllocationPercentage' in tiered_storage_config:
+                percentage = tiered_storage_config['InstanceMemoryAllocationPercentage']
+                if not isinstance(percentage, int) or percentage < 0 or percentage > 100:
+                    print(f"Error: InstanceMemoryAllocationPercentage must be an integer between 0 and 100, got {percentage}")
+                    return None
+            
+            if 'Mode' in tiered_storage_config:
+                mode = tiered_storage_config['Mode']
+                if mode not in ['Enable', 'Disable']:
+                    print(f"Error: Mode must be 'Enable' or 'Disable', got {mode}")
+                    return None
+            
+            # Check for unexpected fields
+            valid_fields = {'InstanceMemoryAllocationPercentage', 'Mode'}
+            unexpected_fields = set(tiered_storage_config.keys()) - valid_fields
+            if unexpected_fields:
+                print(f"Warning: Unexpected fields in TieredStorageConfig: {unexpected_fields}")
+            
+            return tiered_storage_config
+        except json.JSONDecodeError as e:
+            print(f"Error parsing tiered storage config JSON: {str(e)}")
+            return None
+    
+    return None
+
 def get_tags_from_env():
     """
     Get tags from environment variables and automatically add required SageMaker tag for HPTO
@@ -324,6 +375,17 @@ def create_hyperpod_cluster(instance_groups):
     if rig_groups:
         rig_groups = enrich_instance_groups(rig_groups, isRig=True)  # Only add execution role
         create_params['RestrictedInstanceGroups'] = rig_groups
+
+    # Get tiered storage configuration if available (only for EKS orchestrator)
+    if orchestrator_type != 'SLURM':
+        tiered_storage_config = get_tiered_storage_config_from_env()
+        if tiered_storage_config:
+            create_params['TieredStorageConfig'] = tiered_storage_config
+            print(f"Adding tiered storage config to EKS cluster: {tiered_storage_config}")
+    else:
+        # Log warning if TieredStorageConfig is provided for SLURM
+        if os.environ.get('TIERED_STORAGE_CONFIG', ''):
+            print("Warning: TieredStorageConfig is only supported for EKS-based HyperPod clusters and will be ignored for SLURM clusters")
 
     if orchestrator_type != 'SLURM':
         node_provisioning_mode = os.environ.get('NODE_PROVISIONING_MODE')
