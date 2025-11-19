@@ -23,6 +23,7 @@ Metadata:
           - CreateHyperPodClusterStack
           - HyperPodClusterName
           - CreateTaskGovernanceClusterPolicyStack
+          - TieredStorageConfig
       - Label:
           default: Networking
         Parameters:
@@ -319,6 +320,8 @@ Metadata:
         default: HyperPod Cluster Name
       CreateTaskGovernanceClusterPolicyStack:
         default: Create Cluster Policy
+      TieredStorageConfig:
+        default: Tiered Storage Configuration
       PrometheusWorkspaceId:
         default: Prometheus Workspace Id
       PrometheusWorkspaceArn:
@@ -692,6 +695,13 @@ Parameters:
     Type: String
     Default: ''
     Description: Custom tags for managing the SageMaker HyperPod cluster as an AWS resource.
+  TieredStorageConfig:
+    Type: String
+    Default: ''
+    Description: >-
+      JSON string containing tiered storage configuration for the SageMaker HyperPod cluster. Format:
+      {"InstanceMemoryAllocationPercentage": Integer (0-100), "Mode": String ("Enable" or "Disable")}. Only applicable
+      for EKS-based clusters.
   DataScientistRole1:
     Type: String
     Default: ''
@@ -1675,6 +1685,8 @@ Resources:
           Ref: RigSettings20
         Tags:
           Ref: Tags
+        TieredStorageConfig:
+          Ref: TieredStorageConfig
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/HyperPodParamClusterStack
     Condition: CreateHyperPodClusterStackCondition

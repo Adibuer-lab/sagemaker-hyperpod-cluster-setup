@@ -320,6 +320,13 @@ Resources:
             Resource:
               - Fn::Sub: arn:aws:s3:::${RigS3BucketName}
               - Fn::Sub: arn:aws:s3:::${RigS3BucketName}/*
+          - Effect: Allow
+            Action:
+              - lambda:InvokeFunction
+            Resource:
+              - arn:aws:lambda:*:*:function:*SageMaker*
+              - arn:aws:lambda:*:*:function:*Sagemaker*
+              - arn:aws:lambda:*:*:function:*sagemaker*
           - Fn::If:
               - HasGatedAccessCondition
               - Effect: Allow
@@ -327,6 +334,18 @@ Resources:
                 Resource:
                   - arn:aws:s3:*:334772094012:accesspoint/advanced-model-customization-recipes-*/*
                   - arn:aws:s3:::advanced-model-customization-recipes*/*
+              - Ref: AWS::NoValue
+          - Fn::If:
+              - HasGatedAccessCondition
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                Resource:
+                  - arn:aws:sqs:*:*:*SageMaker*
+                  - arn:aws:sqs:*:*:*Sagemaker*
+                  - arn:aws:sqs:*:*:*sagemaker*
               - Ref: AWS::NoValue
           - Fn::If:
               - HasRigS3OutputBucket

@@ -79,6 +79,13 @@ Parameters:
       - 'true'
       - 'false'
     Description: Feature flag for enabling HP training operator.
+  TieredStorageConfig:
+    Type: String
+    Default: ''
+    Description: >-
+      JSON string containing tiered storage configuration for the SageMaker HyperPod cluster. Format:
+      {"InstanceMemoryAllocationPercentage": Integer (0-100), "Mode": String ("Enable" or "Disable")}. Only applicable
+      for EKS-based clusters.
   InstanceGroupSettings1:
     Type: String
     Default: '[]'
@@ -438,6 +445,8 @@ Resources:
             Ref: AutoScalerType
           ENABLE_HP_TRAINING_OPERATOR_FEATURE:
             Ref: EnableHPTrainingOperatorFeature
+          TIERED_STORAGE_CONFIG:
+            Ref: TieredStorageConfig
           INSTANCE_GROUP_SETTINGS1:
             Ref: InstanceGroupSettings1
           RIG_SETTINGS1:
