@@ -1395,6 +1395,44 @@ Resources:
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/S3EndpointStack
     Condition: CreateS3EndpointStackCondition
+  RigEndpointStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL:
+        Fn::If:
+          - CustomBucketCondition
+          - Fn::Sub: https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/rig-endpoint-template.yaml
+          - Fn::Sub: >-
+              https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/rig-endpoint-template.yaml
+      Parameters:
+        VpcId:
+          Fn::If:
+            - CreateVPCStackCondition
+            - Fn::GetAtt:
+                - VPCStack
+                - Outputs.VpcId
+            - Ref: VpcId
+        PrivateSubnetIds:
+          Fn::If:
+            - CreatePrivateSubnetStackCondition
+            - Fn::GetAtt:
+                - PrivateSubnetStack
+                - Outputs.PrivateSubnetIds
+            - Ref: PrivateSubnetIds
+        SecurityGroupIds:
+          Fn::If:
+            - CreateSecurityGroupStackCondition
+            - Fn::GetAtt:
+                - SecurityGroupStack
+                - Outputs.SecurityGroupId
+            - Ref: SecurityGroupIds
+        HasGatedAccess:
+          Ref: HasGatedAccess
+        ResourceNamePrefix:
+          Ref: ResourceNamePrefix
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/RigEndpointStack
+    Condition: CreateRigCondition
   LifeCycleScriptStack:
     Type: AWS::CloudFormation::Stack
     Properties:

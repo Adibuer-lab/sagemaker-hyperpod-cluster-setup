@@ -41,6 +41,9 @@ Resources:
         - Key: aws-sagemaker-hyperpod-prerequiste
           Value:
             Fn::Sub: ${ResourceNamePrefix}-s3-vpc-endpoint
+        - Key: Name
+          Value:
+            Fn::Sub: ${ResourceNamePrefix}-s3-vpc-endpoint
       VpcEndpointType: Gateway
       VpcId:
         Ref: VpcId
