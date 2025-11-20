@@ -24,6 +24,7 @@ Metadata:
           - HyperPodClusterName
           - CreateTaskGovernanceClusterPolicyStack
           - TieredStorageConfig
+          - TieredKVCacheConfig
       - Label:
           default: Networking
         Parameters:
@@ -322,6 +323,8 @@ Metadata:
         default: Create Cluster Policy
       TieredStorageConfig:
         default: Tiered Storage Configuration
+      TieredKVCacheConfig:
+        default: Tiered KV Cache Configuration
       PrometheusWorkspaceId:
         default: Prometheus Workspace Id
       PrometheusWorkspaceArn:
@@ -702,6 +705,12 @@ Parameters:
       JSON string containing tiered storage configuration for the SageMaker HyperPod cluster. Format:
       {"InstanceMemoryAllocationPercentage": Integer (0-100), "Mode": String ("Enable" or "Disable")}. Only applicable
       for EKS-based clusters.
+  TieredKVCacheConfig:
+    Type: String
+    Default: ''
+    Description: >-
+      JSON string containing tiered KV cache configuration. Format: {"KVCacheMode": "Enable", "InstanceGroup": ["ig-1",
+      "ig-2"], "NVMeMode": "Enable"}. Only applicable for EKS-based clusters with P-series instances.
   DataScientistRole1:
     Type: String
     Default: ''
@@ -1113,6 +1122,18 @@ Conditions:
       - Fn::Equals:
           - Ref: RigSettings1
           - '[]'
+  TieredKVCacheConfigCondition:
+    Fn::And:
+      - Fn::Equals:
+          - Ref: CreateHyperPodClusterStack
+          - 'true'
+      - Fn::Equals:
+          - Ref: CreateEKSClusterStack
+          - 'true'
+      - Fn::Not:
+          - Fn::Equals:
+              - Ref: TieredKVCacheConfig
+              - ''
   InstallCertManagerCondition:
     Fn::Or:
       - Condition: EnableHPInferenceFeatureCondition
@@ -2332,6 +2353,51 @@ Resources:
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/HPTrainingOperatorMainStack
     Condition: EnableHPTrainingOperatorFeatureCondition
+  TieredStorageUpdateStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL:
+        Fn::If:
+          - CustomBucketCondition
+          - Fn::Sub: https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/tiered-cache-config-template.yaml
+          - Fn::Sub: >-
+              https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/tiered-cache-config-template.yaml
+      Parameters:
+        ResourceNamePrefix:
+          Ref: ResourceNamePrefix
+        EKSClusterName:
+          Fn::If:
+            - CreateEKSClusterStackCondition
+            - Fn::GetAtt:
+                - EKSClusterStack
+                - Outputs.EKSClusterName
+            - Ref: EKSClusterName
+        HyperPodClusterName:
+          Fn::If:
+            - CreateHyperPodClusterStackCondition
+            - Fn::GetAtt:
+                - HyperPodClusterStack
+                - Outputs.HyperPodClusterName
+            - Ref: HyperPodClusterName
+        CustomResourceS3Bucket:
+          Fn::If:
+            - CustomBucketCondition
+            - Ref: CustomBucketName
+            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
+        TieredStorageConfig:
+          Ref: TieredStorageConfig
+        TieredKVCacheConfig:
+          Ref: TieredKVCacheConfig
+        Region:
+          Ref: AWS::Region
+        Stage:
+          Ref: Stage
+    DependsOn:
+      - EKSClusterStack
+      - HyperPodClusterStack
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/TieredStorageUpdateStack
+    Condition: TieredKVCacheConfigCondition
 Outputs:
   TaskGovernanceClusterPolicyLambdaArn:
     Value:
