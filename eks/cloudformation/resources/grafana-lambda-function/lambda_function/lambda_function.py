@@ -182,7 +182,7 @@ def create_prometheus_datasource():
     try:
         validate_env_vars()
         region = os.environ[REGION]
-        prometheus_url = f"https://aps-workspaces.{region}.amazonaws.com/workspaces/{os.environ[PROMETHEUS_WORKSPACE_ID]}/api"
+        prometheus_url = f"https://aps-workspaces.{region}.amazonaws.com/workspaces/{os.environ[PROMETHEUS_WORKSPACE_ID]}"
 
         datasource_payload = {
             "name": "prometheus",
