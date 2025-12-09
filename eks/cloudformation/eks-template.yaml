@@ -82,7 +82,9 @@ Resources:
       aws:cdk:path: EksCfnTemplate/EKSCluster
   # =============================================================================
   # FARGATE FOR SYSTEM PODS (Custom addition)
-  # Runs CoreDNS, Training Operator, MPI Operator on Fargate instead of GPU nodes
+  # Runs CoreDNS and Kubeflow/MPI controllers on Fargate instead of GPU nodes
+  # NOTE: Label selectors ensure only controller pods go to Fargate, not training
+  # worker pods (PyTorchJob/MPIJob workers need GPU nodes, not Fargate)
   # =============================================================================
   FargatePodExecutionRole:
     Type: AWS::IAM::Role
@@ -115,12 +117,21 @@ Resources:
       Subnets:
         Ref: EksPrivateSubnetIds
       Selectors:
+        # CoreDNS pods
         - Namespace: kube-system
           Labels:
             - Key: k8s-app
               Value: kube-dns
+        # Training Operator controller only (not training worker pods)
         - Namespace: kubeflow
+          Labels:
+            - Key: control-plane
+              Value: kubeflow-training-operator
+        # MPI Operator controller only (not MPIJob worker pods)
         - Namespace: mpi-operator
+          Labels:
+            - Key: app
+              Value: mpi-operator
     Metadata:
       aws:cdk:path: EksCfnTemplate/FargateProfileSystem
 
