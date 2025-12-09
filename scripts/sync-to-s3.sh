@@ -47,10 +47,11 @@ cp "$REPO_ROOT/slurm/cloudformation/"*.yaml "$STAGING_DIR/templates-slurm/"
 # Create VERSION file (use git short hash)
 git -C "$REPO_ROOT" rev-parse --short HEAD > "$STAGING_DIR/VERSION"
 
-# Create versioned copy (1/)
-cp -r "$STAGING_DIR/templates" "$STAGING_DIR/1/"
-cp -r "$STAGING_DIR/templates-slurm" "$STAGING_DIR/1/"
-cp -r "$STAGING_DIR/resources" "$STAGING_DIR/1/"
+# Create versioned copy (1/) - must create 1/ first so cp -r creates subdirs
+mkdir -p "$STAGING_DIR/1/templates" "$STAGING_DIR/1/templates-slurm" "$STAGING_DIR/1/resources"
+cp "$STAGING_DIR/templates/"* "$STAGING_DIR/1/templates/"
+cp "$STAGING_DIR/templates-slurm/"* "$STAGING_DIR/1/templates-slurm/"
+cp -r "$STAGING_DIR/resources/"* "$STAGING_DIR/1/resources/"
 
 echo -e "${GREEN}✓ Staging ready${NC}"
 echo "  templates:       $(ls "$STAGING_DIR/templates/"*.yaml 2>/dev/null | wc -l | tr -d ' ') files"
