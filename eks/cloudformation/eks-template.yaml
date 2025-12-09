@@ -80,6 +80,53 @@ Resources:
         Ref: KubernetesVersion
     Metadata:
       aws:cdk:path: EksCfnTemplate/EKSCluster
+  # =============================================================================
+  # FARGATE FOR SYSTEM PODS (Custom addition)
+  # Runs CoreDNS, Training Operator, MPI Operator on Fargate instead of GPU nodes
+  # =============================================================================
+  FargatePodExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Fn::Sub: ${ResourceNamePrefix}-fargate-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: eks-fargate-pods.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSFargatePodExecutionRolePolicy
+    Metadata:
+      aws:cdk:path: EksCfnTemplate/FargatePodExecutionRole
+
+  FargateProfileSystem:
+    Type: AWS::EKS::FargateProfile
+    DependsOn: EKSCluster
+    Properties:
+      ClusterName:
+        Ref: EKSCluster
+      FargateProfileName: system-pods
+      PodExecutionRoleArn:
+        Fn::GetAtt:
+          - FargatePodExecutionRole
+          - Arn
+      Subnets:
+        Ref: EksPrivateSubnetIds
+      Selectors:
+        - Namespace: kube-system
+          Labels:
+            - Key: k8s-app
+              Value: kube-dns
+        - Namespace: kubeflow
+        - Namespace: mpi-operator
+    Metadata:
+      aws:cdk:path: EksCfnTemplate/FargateProfileSystem
+
+  # =============================================================================
+  # EKS ADDONS
+  # =============================================================================
   VpcCNIAddOn:
     Type: AWS::EKS::Addon
     Properties:
@@ -100,6 +147,7 @@ Resources:
       aws:cdk:path: EksCfnTemplate/KubeProxyAddOn
   CoreDNSAddOn:
     Type: AWS::EKS::Addon
+    DependsOn: FargateProfileSystem
     Properties:
       AddonName: coredns
       ClusterName:
