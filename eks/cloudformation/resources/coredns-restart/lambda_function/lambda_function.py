@@ -113,7 +113,7 @@ def wait_for_coredns_rollout():
         print("Waiting for CoreDNS rollout to complete...")
 
         result = subprocess.run([
-            'kubectl', 'rollout', 'status', 'deployment/coredns', '-n', 'kube-system', '--timeout=180s'
+            'kubectl', 'rollout', 'status', 'deployment/coredns', '-n', 'kube-system', '--timeout=540s'
         ], check=True, capture_output=True, text=True)
         print(f"Status output: {result.stdout}")
 

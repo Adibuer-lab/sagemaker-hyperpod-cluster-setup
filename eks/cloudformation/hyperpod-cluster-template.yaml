@@ -397,6 +397,7 @@ Resources:
                           Ref: S3BucketName
               - Effect: Allow
                 Action:
+                  - ec2:DescribeInstanceTypeOfferings
                   - ec2:DescribeSecurityGroups
                   - ec2:DescribeSubnets
                   - ec2:DescribeVpcs

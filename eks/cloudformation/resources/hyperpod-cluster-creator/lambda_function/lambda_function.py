@@ -181,6 +181,98 @@ def enrich_instance_groups(instance_groups, isRig=False):
     
     return instance_groups
 
+def filter_instance_groups_by_az_availability(instance_groups):
+    """
+    Filter out instance groups whose instance type is not available in their target AZ.
+    
+    Each instance group has an InstanceType and OverrideVpcConfig.Subnets specifying the subnet/AZ.
+    We check if the instance type is offered in that AZ and skip groups where it's not.
+    """
+    if not instance_groups:
+        return instance_groups
+    
+    ec2 = boto3.client('ec2')
+    
+    # Build cache of instance type -> available AZs
+    instance_type_az_cache = {}
+    
+    # Get unique instance types
+    instance_types = set()
+    for ig in instance_groups:
+        if 'InstanceType' in ig:
+            # Convert ml.* to EC2 instance type
+            ml_type = ig['InstanceType']
+            ec2_type = ml_type.replace('ml.', '') if ml_type.startswith('ml.') else ml_type
+            instance_types.add(ec2_type)
+    
+    # Query availability for each instance type
+    for ec2_type in instance_types:
+        try:
+            response = ec2.describe_instance_type_offerings(
+                LocationType='availability-zone',
+                Filters=[{'Name': 'instance-type', 'Values': [ec2_type]}]
+            )
+            available_azs = {o['Location'] for o in response.get('InstanceTypeOfferings', [])}
+            instance_type_az_cache[ec2_type] = available_azs
+            print(f"Instance type {ec2_type} available in AZs: {available_azs}")
+        except Exception as e:
+            print(f"Warning: Could not check availability for {ec2_type}: {e}")
+            instance_type_az_cache[ec2_type] = None  # None means skip filtering for this type
+    
+    # Get subnet -> AZ mapping for subnets in instance groups
+    subnet_ids = set()
+    for ig in instance_groups:
+        if 'OverrideVpcConfig' in ig and 'Subnets' in ig['OverrideVpcConfig']:
+            subnet_ids.update(ig['OverrideVpcConfig']['Subnets'])
+    
+    subnet_to_az = {}
+    if subnet_ids:
+        try:
+            response = ec2.describe_subnets(SubnetIds=list(subnet_ids))
+            for subnet in response.get('Subnets', []):
+                subnet_to_az[subnet['SubnetId']] = subnet['AvailabilityZone']
+            print(f"Subnet to AZ mapping: {subnet_to_az}")
+        except Exception as e:
+            print(f"Warning: Could not get subnet AZ mapping: {e}")
+    
+    # Filter instance groups
+    filtered_groups = []
+    for ig in instance_groups:
+        ig_name = ig.get('InstanceGroupName', 'unknown')
+        ml_type = ig.get('InstanceType', '')
+        ec2_type = ml_type.replace('ml.', '') if ml_type.startswith('ml.') else ml_type
+        
+        # Get the AZ for this instance group
+        subnets = ig.get('OverrideVpcConfig', {}).get('Subnets', [])
+        if not subnets:
+            # No subnet specified, keep the group
+            filtered_groups.append(ig)
+            continue
+        
+        subnet_id = subnets[0]  # Instance groups typically have one subnet
+        az = subnet_to_az.get(subnet_id)
+        
+        if not az:
+            print(f"Warning: Could not determine AZ for instance group {ig_name}, keeping it")
+            filtered_groups.append(ig)
+            continue
+        
+        # Check if instance type is available in this AZ
+        available_azs = instance_type_az_cache.get(ec2_type)
+        if available_azs is None:
+            # Couldn't check availability, keep the group
+            filtered_groups.append(ig)
+            continue
+        
+        if az in available_azs:
+            filtered_groups.append(ig)
+            print(f"Instance group {ig_name} ({ml_type} in {az}): INCLUDED")
+        else:
+            print(f"Instance group {ig_name} ({ml_type} in {az}): EXCLUDED - instance type not available in AZ")
+    
+    print(f"Filtered instance groups: {len(filtered_groups)} of {len(instance_groups)} kept")
+    return filtered_groups
+
 def get_tiered_storage_config_from_env():
     """
     Get tiered storage configuration from environment variables
@@ -552,6 +644,8 @@ def on_create(event):
         # Enrich instance groups with additional configuration
         if instance_groups:
             instance_groups = enrich_instance_groups(instance_groups, isRig=False)
+            # Filter out instance groups in AZs where their instance type is not available
+            instance_groups = filter_instance_groups_by_az_availability(instance_groups)
         
         # Create the HyperPod cluster
         cluster_info = create_hyperpod_cluster(instance_groups)
