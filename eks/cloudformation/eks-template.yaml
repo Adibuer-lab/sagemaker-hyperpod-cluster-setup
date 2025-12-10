@@ -32,6 +32,10 @@ Parameters:
     Type: String
     Default: resources/artifacts/helm-lambda-layer.zip
     Description: The S3 key for the lambda layer zip file.
+  CoreDNSRestartFunctionS3Key:
+    Type: String
+    Default: resources/artifacts/coredns-restart-lambda-function.zip
+    Description: The S3 key for the CoreDNS restart lambda function zip file.
 Resources:
   ClusterRole:
     Type: AWS::IAM::Role
@@ -252,7 +256,7 @@ Resources:
       FunctionName:
         Fn::Sub: ${ResourceNamePrefix}-coredns-restart
       Runtime: python3.12
-      Handler: index.handler
+      Handler: lambda_function.lambda_handler
       Timeout: 300
       MemorySize: 512
       Layers:
@@ -269,92 +273,10 @@ Resources:
           KUBECONFIG: /tmp/.kube/config
           LD_LIBRARY_PATH: /opt/python/lib
       Code:
-        ZipFile: |
-          import boto3
-          import json
-          import urllib.request
-          import os
-          import subprocess
-          import yaml
-
-          def send_response(event, context, status, data={}):
-              body = json.dumps({
-                  'Status': status,
-                  'Reason': f'See CloudWatch Log Stream: {context.log_stream_name}',
-                  'PhysicalResourceId': context.log_stream_name,
-                  'StackId': event['StackId'],
-                  'RequestId': event['RequestId'],
-                  'LogicalResourceId': event['LogicalResourceId'],
-                  'Data': data
-              }).encode()
-              req = urllib.request.Request(event['ResponseURL'], data=body, method='PUT')
-              req.add_header('Content-Type', '')
-              urllib.request.urlopen(req)
-
-          def write_kubeconfig(cluster_name, region):
-              eks = boto3.client('eks', region_name=region)
-              cluster = eks.describe_cluster(name=cluster_name)['cluster']
-              kubeconfig = {
-                  'apiVersion': 'v1',
-                  'kind': 'Config',
-                  'clusters': [{
-                      'cluster': {
-                          'server': cluster['endpoint'],
-                          'certificate-authority-data': cluster['certificateAuthority']['data']
-                      },
-                      'name': cluster_name
-                  }],
-                  'contexts': [{
-                      'context': {'cluster': cluster_name, 'user': cluster_name},
-                      'name': cluster['arn']
-                  }],
-                  'current-context': cluster['arn'],
-                  'users': [{
-                      'name': cluster_name,
-                      'user': {
-                          'exec': {
-                              'apiVersion': 'client.authentication.k8s.io/v1beta1',
-                              'command': 'aws-iam-authenticator',
-                              'args': ['token', '-i', cluster_name]
-                          }
-                      }
-                  }]
-              }
-              kubeconfig_dir = '/tmp/.kube'
-              os.makedirs(kubeconfig_dir, exist_ok=True)
-              kubeconfig_path = os.path.join(kubeconfig_dir, 'config')
-              with open(kubeconfig_path, 'w') as f:
-                  yaml.dump(kubeconfig, f)
-              os.chmod(kubeconfig_path, 0o600)
-              os.environ['KUBECONFIG'] = kubeconfig_path
-
-          def handler(event, context):
-              if event['RequestType'] == 'Delete':
-                  send_response(event, context, 'SUCCESS')
-                  return
-              try:
-                  cluster_name = os.environ['CLUSTER_NAME']
-                  region = os.environ.get('AWS_REGION', 'us-east-1')
-                  write_kubeconfig(cluster_name, region)
-                  # Restart CoreDNS deployment
-                  result = subprocess.run(
-                      ['kubectl', 'rollout', 'restart', 'deployment/coredns', '-n', 'kube-system'],
-                      check=True, capture_output=True, text=True
-                  )
-                  print(f'Restart output: {result.stdout}')
-                  # Wait for rollout to complete
-                  result = subprocess.run(
-                      ['kubectl', 'rollout', 'status', 'deployment/coredns', '-n', 'kube-system', '--timeout=180s'],
-                      check=True, capture_output=True, text=True
-                  )
-                  print(f'Status output: {result.stdout}')
-                  send_response(event, context, 'SUCCESS', {'Message': 'CoreDNS restarted'})
-              except subprocess.CalledProcessError as e:
-                  print(f'Command failed: {e.cmd}, stderr: {e.stderr}')
-                  send_response(event, context, 'FAILED', {'Error': e.stderr})
-              except Exception as e:
-                  print(f'Error: {e}')
-                  send_response(event, context, 'FAILED', {'Error': str(e)})
+        S3Bucket:
+          Ref: CustomResourceS3Bucket
+        S3Key:
+          Ref: CoreDNSRestartFunctionS3Key
     Metadata:
       aws:cdk:path: EksCfnTemplate/CoreDNSRestartFunction
 

@@ -16,3 +16,4 @@ cd ../grafana-service-token && ./generate-grafana-service-token-lambda-zip.sh
 cd ../observability-stack && ./generate-observability-stack-lambda-zip.sh
 cd ../observability-stack && ./generate-observability-stack-lambda-zip.sh
 cd ../cluster-policy && ./generate-cluster-policy-lambda-zip.sh
+cd ../coredns-restart && ./generate-coredns-restart-lambda-func.sh
