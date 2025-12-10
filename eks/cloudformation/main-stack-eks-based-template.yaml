@@ -1362,6 +1362,11 @@ Resources:
                 - SecurityGroupStack
                 - Outputs.SecurityGroupId
             - Ref: SecurityGroupIds
+        CustomResourceS3Bucket:
+          Fn::If:
+            - CustomBucketCondition
+            - Ref: CustomBucketName
+            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/EKSClusterStack
     Condition: CreateEKSClusterStackCondition

@@ -24,6 +24,14 @@ Parameters:
     Type: CommaDelimitedList
     Default: sg-1234567890abcdef0
     Description: The Id of your cluster security group.
+  CustomResourceS3Bucket:
+    Type: String
+    Default: aws-sagemaker-hyperpod-cluster-setup-us-east-2-prod
+    Description: The name of the S3 bucket containing the custom resource.
+  LayerS3Key:
+    Type: String
+    Default: resources/artifacts/helm-lambda-layer.zip
+    Description: The S3 key for the lambda layer zip file.
 Resources:
   ClusterRole:
     Type: AWS::IAM::Role
@@ -166,6 +174,204 @@ Resources:
       ResolveConflicts: OVERWRITE
     Metadata:
       aws:cdk:path: EksCfnTemplate/CoreDNSAddOn
+
+  # =============================================================================
+  # COREDNS FARGATE RESTART (Custom addition)
+  # Restarts CoreDNS deployment so pods get scheduled on Fargate
+  # Required because CoreDNS addon defaults to EC2 compute-type annotation
+  # =============================================================================
+  CoreDNSRestartRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Fn::Sub: ${ResourceNamePrefix}-coredns-restart-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: EKSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - eks:DescribeCluster
+                Resource:
+                  Fn::Sub: arn:aws:eks:${AWS::Region}:${AWS::AccountId}:cluster/${EKSCluster}
+    Metadata:
+      aws:cdk:path: EksCfnTemplate/CoreDNSRestartRole
+
+  CoreDNSRestartAccessEntry:
+    Type: AWS::EKS::AccessEntry
+    DependsOn: CoreDNSAddOn
+    Properties:
+      ClusterName:
+        Ref: EKSCluster
+      PrincipalArn:
+        Fn::GetAtt:
+          - CoreDNSRestartRole
+          - Arn
+      AccessPolicies:
+        - PolicyArn: arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+          AccessScope:
+            Type: cluster
+    Metadata:
+      aws:cdk:path: EksCfnTemplate/CoreDNSRestartAccessEntry
+
+  CoreDNSRestartLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      CompatibleArchitectures:
+        - x86_64
+      CompatibleRuntimes:
+        - python3.9
+        - python3.10
+        - python3.11
+        - python3.12
+      Content:
+        S3Bucket:
+          Ref: CustomResourceS3Bucket
+        S3Key:
+          Ref: LayerS3Key
+      Description: Lambda Layer for kubectl and aws-iam-authenticator tools
+      LayerName:
+        Fn::Sub: ${ResourceNamePrefix}-coredns-restart-layer
+    Metadata:
+      aws:cdk:path: EksCfnTemplate/CoreDNSRestartLayer
+
+  CoreDNSRestartFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: CoreDNSRestartAccessEntry
+    Properties:
+      FunctionName:
+        Fn::Sub: ${ResourceNamePrefix}-coredns-restart
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 300
+      MemorySize: 512
+      Layers:
+        - Ref: CoreDNSRestartLayer
+      Role:
+        Fn::GetAtt:
+          - CoreDNSRestartRole
+          - Arn
+      Environment:
+        Variables:
+          CLUSTER_NAME:
+            Ref: EKSCluster
+          PATH: /opt/python/bin:/var/lang/bin:/usr/local/bin:/usr/bin/:/bin
+          KUBECONFIG: /tmp/.kube/config
+          LD_LIBRARY_PATH: /opt/python/lib
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import urllib.request
+          import os
+          import subprocess
+          import yaml
+
+          def send_response(event, context, status, data={}):
+              body = json.dumps({
+                  'Status': status,
+                  'Reason': f'See CloudWatch Log Stream: {context.log_stream_name}',
+                  'PhysicalResourceId': context.log_stream_name,
+                  'StackId': event['StackId'],
+                  'RequestId': event['RequestId'],
+                  'LogicalResourceId': event['LogicalResourceId'],
+                  'Data': data
+              }).encode()
+              req = urllib.request.Request(event['ResponseURL'], data=body, method='PUT')
+              req.add_header('Content-Type', '')
+              urllib.request.urlopen(req)
+
+          def write_kubeconfig(cluster_name, region):
+              eks = boto3.client('eks', region_name=region)
+              cluster = eks.describe_cluster(name=cluster_name)['cluster']
+              kubeconfig = {
+                  'apiVersion': 'v1',
+                  'kind': 'Config',
+                  'clusters': [{
+                      'cluster': {
+                          'server': cluster['endpoint'],
+                          'certificate-authority-data': cluster['certificateAuthority']['data']
+                      },
+                      'name': cluster_name
+                  }],
+                  'contexts': [{
+                      'context': {'cluster': cluster_name, 'user': cluster_name},
+                      'name': cluster['arn']
+                  }],
+                  'current-context': cluster['arn'],
+                  'users': [{
+                      'name': cluster_name,
+                      'user': {
+                          'exec': {
+                              'apiVersion': 'client.authentication.k8s.io/v1beta1',
+                              'command': 'aws-iam-authenticator',
+                              'args': ['token', '-i', cluster_name]
+                          }
+                      }
+                  }]
+              }
+              kubeconfig_dir = '/tmp/.kube'
+              os.makedirs(kubeconfig_dir, exist_ok=True)
+              kubeconfig_path = os.path.join(kubeconfig_dir, 'config')
+              with open(kubeconfig_path, 'w') as f:
+                  yaml.dump(kubeconfig, f)
+              os.chmod(kubeconfig_path, 0o600)
+              os.environ['KUBECONFIG'] = kubeconfig_path
+
+          def handler(event, context):
+              if event['RequestType'] == 'Delete':
+                  send_response(event, context, 'SUCCESS')
+                  return
+              try:
+                  cluster_name = os.environ['CLUSTER_NAME']
+                  region = os.environ.get('AWS_REGION', 'us-east-1')
+                  write_kubeconfig(cluster_name, region)
+                  # Restart CoreDNS deployment
+                  result = subprocess.run(
+                      ['kubectl', 'rollout', 'restart', 'deployment/coredns', '-n', 'kube-system'],
+                      check=True, capture_output=True, text=True
+                  )
+                  print(f'Restart output: {result.stdout}')
+                  # Wait for rollout to complete
+                  result = subprocess.run(
+                      ['kubectl', 'rollout', 'status', 'deployment/coredns', '-n', 'kube-system', '--timeout=180s'],
+                      check=True, capture_output=True, text=True
+                  )
+                  print(f'Status output: {result.stdout}')
+                  send_response(event, context, 'SUCCESS', {'Message': 'CoreDNS restarted'})
+              except subprocess.CalledProcessError as e:
+                  print(f'Command failed: {e.cmd}, stderr: {e.stderr}')
+                  send_response(event, context, 'FAILED', {'Error': e.stderr})
+              except Exception as e:
+                  print(f'Error: {e}')
+                  send_response(event, context, 'FAILED', {'Error': str(e)})
+    Metadata:
+      aws:cdk:path: EksCfnTemplate/CoreDNSRestartFunction
+
+  CoreDNSRestart:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn:
+      - CoreDNSRestartFunction
+      - CoreDNSAddOn
+      - FargateProfileSystem
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - CoreDNSRestartFunction
+          - Arn
+    Metadata:
+      aws:cdk:path: EksCfnTemplate/CoreDNSRestart
+
   PodIdentityAddOn:
     Type: AWS::EKS::Addon
     Properties:
