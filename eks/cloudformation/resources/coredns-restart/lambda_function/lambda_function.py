@@ -86,56 +86,67 @@ def write_kubeconfig(cluster_name, region):
         raise
 
 
-def restart_coredns():
+def patch_coredns_for_fargate():
     """
-    Restart CoreDNS deployment using kubectl
+    Patch CoreDNS deployment with Fargate compute-type annotation
     """
     try:
-        print("Restarting CoreDNS deployment...")
+        print("Patching CoreDNS deployment with Fargate compute-type annotation...")
 
-        # Restart CoreDNS deployment
-        result = subprocess.run(
-            ['kubectl', 'rollout', 'restart', 'deployment/coredns', '-n', 'kube-system'],
-            check=True, capture_output=True, text=True
-        )
-        print(f"Restart output: {result.stdout}")
+        result = subprocess.run([
+            'kubectl', 'patch', 'deployment', 'coredns', '-n', 'kube-system',
+            '-p', '{"spec":{"template":{"metadata":{"annotations":{"eks.amazonaws.com/compute-type":"fargate"}}}}}'
+        ], check=True, capture_output=True, text=True)
+        print(f"Patch output: {result.stdout}")
 
-        # Wait for rollout to complete
-        result = subprocess.run(
-            ['kubectl', 'rollout', 'status', 'deployment/coredns', '-n', 'kube-system', '--timeout=180s'],
-            check=True, capture_output=True, text=True
-        )
-        print(f"Status output: {result.stdout}")
-
-        print("CoreDNS restarted successfully")
         return True
 
     except subprocess.CalledProcessError as e:
-        raise Exception(f"Failed to restart CoreDNS: {e.cmd}. Return code: {e.returncode}. Stderr: {e.stderr}")
+        raise Exception(f"Failed to patch CoreDNS: {e.cmd}. Return code: {e.returncode}. Stderr: {e.stderr}")
+
+
+def wait_for_coredns_rollout():
+    """
+    Wait for CoreDNS deployment rollout to complete
+    """
+    try:
+        print("Waiting for CoreDNS rollout to complete...")
+
+        result = subprocess.run([
+            'kubectl', 'rollout', 'status', 'deployment/coredns', '-n', 'kube-system', '--timeout=180s'
+        ], check=True, capture_output=True, text=True)
+        print(f"Status output: {result.stdout}")
+
+        print("CoreDNS rollout completed successfully")
+        return True
+
+    except subprocess.CalledProcessError as e:
+        raise Exception(f"Failed waiting for CoreDNS rollout: {e.cmd}. Return code: {e.returncode}. Stderr: {e.stderr}")
 
 
 def on_create():
     """
-    Handle Create request to restart CoreDNS
+    Handle Create request - patch CoreDNS for Fargate and wait for rollout
     """
     response_data = {
         "Status": "SUCCESS",
-        "Reason": "CoreDNS restarted successfully"
+        "Reason": "CoreDNS patched for Fargate successfully"
     }
 
     cluster_name = os.environ['CLUSTER_NAME']
     region = os.environ['AWS_REGION']
 
     write_kubeconfig(cluster_name, region)
-    restart_coredns()
+    patch_coredns_for_fargate()
+    wait_for_coredns_rollout()
 
-    response_data["CoreDNSRestarted"] = True
+    response_data["CoreDNSPatched"] = True
     return response_data
 
 
 def on_update():
     """
-    Handle Update request - restart CoreDNS again
+    Handle Update request - patch CoreDNS again
     """
     return on_create()
 

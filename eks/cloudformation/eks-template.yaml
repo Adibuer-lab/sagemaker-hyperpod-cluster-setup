@@ -134,16 +134,16 @@ Resources:
           Labels:
             - Key: k8s-app
               Value: kube-dns
+        # MPI Operator controller only (not MPIJob worker pods)
+        - Namespace: kube-system
+          Labels:
+            - Key: app
+              Value: mpi-operator
         # Training Operator controller only (not training worker pods)
         - Namespace: kubeflow
           Labels:
             - Key: control-plane
               Value: kubeflow-training-operator
-        # MPI Operator controller only (not MPIJob worker pods)
-        - Namespace: mpi-operator
-          Labels:
-            - Key: app
-              Value: mpi-operator
     Metadata:
       aws:cdk:path: EksCfnTemplate/FargateProfileSystem
 
