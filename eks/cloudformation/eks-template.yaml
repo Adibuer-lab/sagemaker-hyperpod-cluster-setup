@@ -115,6 +115,7 @@ Resources:
     Metadata:
       aws:cdk:path: EksCfnTemplate/FargatePodExecutionRole
 
+  # Fargate Profile 1: Core system components (5 selectors max)
   FargateProfileSystem:
     Type: AWS::EKS::FargateProfile
     DependsOn: EKSCluster
@@ -151,6 +152,24 @@ Resources:
           Labels:
             - Key: app
               Value: gpu-operator
+    Metadata:
+      aws:cdk:path: EksCfnTemplate/FargateProfileSystem
+
+  # Fargate Profile 2: Additional controllers (5 selectors max)
+  FargateProfileControllers:
+    Type: AWS::EKS::FargateProfile
+    DependsOn: EKSCluster
+    Properties:
+      ClusterName:
+        Ref: EKSCluster
+      FargateProfileName: controller-pods
+      PodExecutionRoleArn:
+        Fn::GetAtt:
+          - FargatePodExecutionRole
+          - Arn
+      Subnets:
+        Ref: EksPrivateSubnetIds
+      Selectors:
         # Node Feature Discovery master
         - Namespace: kube-system
           Labels:
@@ -174,7 +193,7 @@ Resources:
             - Key: control-plane
               Value: controller-manager
     Metadata:
-      aws:cdk:path: EksCfnTemplate/FargateProfileSystem
+      aws:cdk:path: EksCfnTemplate/FargateProfileControllers
 
   # =============================================================================
   # EKS ADDONS
