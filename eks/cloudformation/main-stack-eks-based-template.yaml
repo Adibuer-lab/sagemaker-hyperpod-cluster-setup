@@ -1628,12 +1628,31 @@ Resources:
                 - Outputs.EKSClusterName
             - Ref: EKSClusterName
         SecurityGroupIds:
+          # Combine the passed-in SG with EKS cluster SG so HyperPod nodes can communicate with
+          # EKS control plane components (CoreDNS, Fargate pods). The EKS cluster auto-creates
+          # a security group that only allows traffic from itself - HyperPod nodes need to be
+          # in that SG or have an ingress rule added.
           Fn::If:
-            - CreateSecurityGroupStackCondition
-            - Fn::GetAtt:
-                - SecurityGroupStack
-                - Outputs.SecurityGroupId
-            - Ref: SecurityGroupIds
+            - CreateEKSClusterStackCondition
+            # When we create EKS: combine passed SG + EKS cluster SG
+            - Fn::Join:
+                - ','
+                - - Fn::If:
+                      - CreateSecurityGroupStackCondition
+                      - Fn::GetAtt:
+                          - SecurityGroupStack
+                          - Outputs.SecurityGroupId
+                      - Ref: SecurityGroupIds
+                  - Fn::GetAtt:
+                      - EKSClusterStack
+                      - Outputs.EKSClusterSecurityGroupId
+            # When using existing EKS: just use passed SG (user must configure SG rules manually)
+            - Fn::If:
+                - CreateSecurityGroupStackCondition
+                - Fn::GetAtt:
+                    - SecurityGroupStack
+                    - Outputs.SecurityGroupId
+                - Ref: SecurityGroupIds
         PrivateSubnetIds:
           Fn::If:
             - CreatePrivateSubnetStackCondition

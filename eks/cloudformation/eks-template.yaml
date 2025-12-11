@@ -384,3 +384,9 @@ Outputs:
     Export:
       Name:
         Fn::Sub: ${AWS::StackName}-OIDCProviderURLWithoutProtocol
+  EKSClusterSecurityGroupId:
+    Description: The auto-created security group ID of the EKS cluster (used by Fargate pods, CoreDNS, etc.)
+    Value:
+      Fn::GetAtt:
+        - EKSCluster
+        - ClusterSecurityGroupId
