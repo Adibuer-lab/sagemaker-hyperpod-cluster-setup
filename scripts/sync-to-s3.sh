@@ -90,6 +90,7 @@ echo ""
 echo -e "${YELLOW}[3/3] Syncing to S3...${NC}"
 aws s3 sync "$STAGING_DIR/" "s3://$BUCKET_NAME/" \
     --region $AWS_REGION $PROFILE_ARG --delete \
+    --size-only \
     --exclude "blueprints/*"
 
 echo -e "${GREEN}✓ Synced to s3://$BUCKET_NAME/${NC}"
