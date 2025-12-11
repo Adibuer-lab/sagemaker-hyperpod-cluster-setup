@@ -158,7 +158,7 @@ Resources:
   # Fargate Profile 2: Additional controllers (5 selectors max)
   FargateProfileControllers:
     Type: AWS::EKS::FargateProfile
-    DependsOn: EKSCluster
+    DependsOn: FargateProfileSystem
     Properties:
       ClusterName:
         Ref: EKSCluster
