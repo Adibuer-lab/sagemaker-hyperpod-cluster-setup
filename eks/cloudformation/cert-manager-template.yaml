@@ -21,7 +21,7 @@ Resources:
       ClusterName:
         Ref: EKSClusterName
       ConfigurationValues: >-
-        {"replicaCount":1,"tolerations":[{"operator":"Exists","effect":"NoSchedule"},{"operator":"Exists","effect":"NoExecute"},{"operator":"Exists","effect":"PreferNoSchedule"}],"webhook":{"replicaCount":1,"tolerations":[{"operator":"Exists","effect":"NoSchedule"},{"operator":"Exists","effect":"NoExecute"},{"operator":"Exists","effect":"PreferNoSchedule"}]},"cainjector":{"replicaCount":1,"tolerations":[{"operator":"Exists","effect":"NoSchedule"},{"operator":"Exists","effect":"NoExecute"},{"operator":"Exists","effect":"PreferNoSchedule"}]}}
+        {"replicaCount":1,"tolerations":[{"operator":"Exists","effect":"NoSchedule"},{"operator":"Exists","effect":"NoExecute"},{"operator":"Exists","effect":"PreferNoSchedule"}],"webhook":{"securePort":10260,"replicaCount":1,"tolerations":[{"operator":"Exists","effect":"NoSchedule"},{"operator":"Exists","effect":"NoExecute"},{"operator":"Exists","effect":"PreferNoSchedule"}]},"cainjector":{"replicaCount":1,"tolerations":[{"operator":"Exists","effect":"NoSchedule"},{"operator":"Exists","effect":"NoExecute"},{"operator":"Exists","effect":"PreferNoSchedule"}]}}
       ResolveConflicts: OVERWRITE
     Metadata:
       aws:cdk:path: CertManagerCfnTemplate/CertManagerAddon

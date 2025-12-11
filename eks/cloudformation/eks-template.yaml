@@ -144,6 +144,20 @@ Resources:
           Labels:
             - Key: control-plane
               Value: kubeflow-training-operator
+        # cert-manager (all pods - controller, webhook, cainjector)
+        - Namespace: cert-manager
+        # GPU Operator controller
+        - Namespace: kube-system
+          Labels:
+            - Key: app
+              Value: gpu-operator
+        # Node Feature Discovery master
+        - Namespace: kube-system
+          Labels:
+            - Key: app.kubernetes.io/component
+              Value: master
+            - Key: app.kubernetes.io/name
+              Value: node-feature-discovery
     Metadata:
       aws:cdk:path: EksCfnTemplate/FargateProfileSystem
 

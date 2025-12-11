@@ -225,12 +225,14 @@ def install_hpto_addon(cluster_name):
             print(f"HPTO add-on already exists with status: {addon_status}")
             return addon_arn, addon_status
         
-        # Create new add-on
+        # Create new add-on with nodeSelector targeting system nodes
         print(f"Creating HPTO add-on on cluster {cluster_name}...")
+        config_values = '{"hpTrainingControllerManager":{"manager":{"nodeSelector":{"node-role":"system"}}}}'
         response = eks.create_addon(
             clusterName=cluster_name,
             addonName=HPTO_ADDON_NAME,
-            resolveConflicts='OVERWRITE'
+            resolveConflicts='OVERWRITE',
+            configurationValues=config_values
         )
         
         print(f"HPTO add-on creation initiated: {response['addon']['addonArn']}")
