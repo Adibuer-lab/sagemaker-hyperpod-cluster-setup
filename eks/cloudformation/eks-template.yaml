@@ -158,6 +158,21 @@ Resources:
               Value: master
             - Key: app.kubernetes.io/name
               Value: node-feature-discovery
+        # FSx CSI controller
+        - Namespace: kube-system
+          Labels:
+            - Key: app
+              Value: fsx-csi-controller
+        # HyperPod Observability controller
+        - Namespace: hyperpod-observability
+          Labels:
+            - Key: control-plane
+              Value: hyperpod-observability-controller-manager
+        # HyperPod Inference Operator controller
+        - Namespace: hyperpod-inference-system
+          Labels:
+            - Key: control-plane
+              Value: controller-manager
     Metadata:
       aws:cdk:path: EksCfnTemplate/FargateProfileSystem
 
