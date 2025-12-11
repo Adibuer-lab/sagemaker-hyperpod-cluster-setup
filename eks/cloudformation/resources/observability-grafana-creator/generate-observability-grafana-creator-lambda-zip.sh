@@ -1,20 +1,20 @@
 #!/bin/bash
 # generate-observability-grafana-creator-lambda-zip.sh
+set -e
 
-# Create and activate a temporary virtual environment
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ARTIFACTS_DIR="$(dirname "$SCRIPT_DIR")/artifacts"
+cd "$SCRIPT_DIR"
+
 python3 -m venv venv
 source venv/bin/activate
 
-# Install dependencies from requirements.txt
 pip install -r lambda_function/requirements.txt -t package/
-
-# Copy function code to package directory
 cp lambda_function/lambda_function.py package/
 
-# Create ZIP file
 cd package
-zip -r ../../artifacts/observability-grafana-lambda-function.zip .
+zip -r "$ARTIFACTS_DIR/observability-grafana-lambda-function.zip" .
 cd ..
 
-# Clean up
 rm -rf package venv
+echo "Created observability-grafana-lambda-function.zip"

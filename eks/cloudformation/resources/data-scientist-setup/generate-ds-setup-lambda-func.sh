@@ -1,21 +1,21 @@
 #!/bin/bash
 # generate-ds-setup-lambda-func.sh
+set -e
 
-# Create and activate a temporary virtual environment
-python3.9 -m venv venv
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ARTIFACTS_DIR="$(dirname "$SCRIPT_DIR")/artifacts"
+cd "$SCRIPT_DIR"
+
+python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
 
-# Install dependencies from requirements.txt
 pip install -r lambda_function/requirements.txt -t package/
-
-# Copy function code to package directory
 cp lambda_function/lambda_function.py package/
 
-# Create ZIP file
 cd package
-zip -r ../../../resources2/artifacts/ds-setup-lambda-function.zip .
+zip -r "$ARTIFACTS_DIR/ds-setup-lambda-function.zip" .
 cd ..
 
-# Clean up
 rm -rf package venv
+echo "Created ds-setup-lambda-function.zip"
