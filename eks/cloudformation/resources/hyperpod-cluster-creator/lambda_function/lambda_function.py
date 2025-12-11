@@ -131,9 +131,11 @@ def enrich_instance_groups(instance_groups, isRig=False):
                     }
         # Check if OverrideVpcConfig already exists
         if 'OverrideVpcConfig' in instance_group:
-            # Only update the Subnets part, keep existing SecurityGroupIds if present
-            if 'SecurityGroupIds' not in instance_group['OverrideVpcConfig']:
-                instance_group['OverrideVpcConfig']['SecurityGroupIds'] = security_group_ids
+            # Merge cluster-level SecurityGroupIds with existing ones (deduplicated)
+            existing_sgs = instance_group['OverrideVpcConfig'].get('SecurityGroupIds', [])
+            merged_sgs = list(set(existing_sgs + security_group_ids))
+            instance_group['OverrideVpcConfig']['SecurityGroupIds'] = merged_sgs
+            print(f"Merged SecurityGroupIds for instance group: {merged_sgs}")
         
         # Check if instance group has TargetAvailabilityZoneId
         if 'TargetAvailabilityZoneId' in instance_group:
@@ -156,13 +158,14 @@ def enrich_instance_groups(instance_groups, isRig=False):
                 
                 # Check if OverrideVpcConfig already exists
                 if 'OverrideVpcConfig' in instance_group:
-                    # Only update the Subnets part, keep existing SecurityGroupIds if present
-                    if 'SecurityGroupIds' not in instance_group['OverrideVpcConfig']:
-                        instance_group['OverrideVpcConfig']['SecurityGroupIds'] = security_group_ids
+                    # Merge cluster-level SecurityGroupIds with existing ones (deduplicated)
+                    existing_sgs = instance_group['OverrideVpcConfig'].get('SecurityGroupIds', [])
+                    merged_sgs = list(set(existing_sgs + security_group_ids))
+                    instance_group['OverrideVpcConfig']['SecurityGroupIds'] = merged_sgs
                     
                     # Update the Subnets with the target subnet
                     instance_group['OverrideVpcConfig']['Subnets'] = [target_subnet]
-                    print(f"Updated Subnets in existing OverrideVpcConfig: {instance_group['OverrideVpcConfig']}")
+                    print(f"Updated OverrideVpcConfig with merged SGs: {instance_group['OverrideVpcConfig']}")
                 else:
                     # Create new OverrideVpcConfig
                     instance_group['OverrideVpcConfig'] = {

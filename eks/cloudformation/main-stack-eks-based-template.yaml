@@ -1185,6 +1185,14 @@ Conditions:
       - Fn::Equals:
           - Ref: CustomBucketName
           - ''
+  KarpenterEnabledCondition:
+    Fn::And:
+      - Fn::Equals:
+          - Ref: AutoScalerType
+          - Karpenter
+      - Fn::Equals:
+          - Ref: CreateHyperPodClusterStack
+          - 'true'
   EnableTaskGovernanceClusterPolicyLambdaCondition:
     Fn::And:
       - Fn::Equals:
@@ -1783,6 +1791,206 @@ Resources:
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/HyperPodClusterStack
     Condition: CreateHyperPodClusterStackCondition
+
+  # =============================================================================
+  # KARPENTER NODEPOOL/NODECLASS SETUP
+  # Creates HyperpodNodeClass and NodePool immediately after HyperPod cluster
+  # so Karpenter can start scaling nodes as soon as possible
+  # =============================================================================
+  KarpenterSetupRole:
+    Type: AWS::IAM::Role
+    Condition: KarpenterEnabledCondition
+    Properties:
+      RoleName:
+        Fn::Sub: ${ResourceNamePrefix}-karpenter-setup-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: KarpenterSetupPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - eks:DescribeCluster
+                Resource:
+                  Fn::If:
+                    - CreateEKSClusterStackCondition
+                    - Fn::GetAtt:
+                        - EKSClusterStack
+                        - Outputs.EKSClusterArn
+                    - Fn::Sub: arn:aws:eks:${AWS::Region}:${AWS::AccountId}:cluster/${EKSClusterName}
+              - Effect: Allow
+                Action:
+                  - sagemaker:DescribeCluster
+                Resource:
+                  Fn::GetAtt:
+                    - HyperPodClusterStack
+                    - Outputs.HyperPodClusterArn
+              - Effect: Allow
+                Action:
+                  - sts:GetCallerIdentity
+                Resource: '*'
+
+  KarpenterSetupAccessEntry:
+    Type: AWS::EKS::AccessEntry
+    Condition: KarpenterEnabledCondition
+    DependsOn: HyperPodClusterStack
+    Properties:
+      ClusterName:
+        Fn::If:
+          - CreateEKSClusterStackCondition
+          - Fn::GetAtt:
+              - EKSClusterStack
+              - Outputs.EKSClusterName
+          - Ref: EKSClusterName
+      PrincipalArn:
+        Fn::GetAtt:
+          - KarpenterSetupRole
+          - Arn
+      Type: STANDARD
+      AccessPolicies:
+        - PolicyArn: arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+          AccessScope:
+            Type: cluster
+
+  KarpenterSetupFunction:
+    Type: AWS::Lambda::Function
+    Condition: KarpenterEnabledCondition
+    DependsOn: KarpenterSetupAccessEntry
+    Properties:
+      FunctionName:
+        Fn::Sub: ${ResourceNamePrefix}-karpenter-setup
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 300
+      MemorySize: 256
+      Role:
+        Fn::GetAtt:
+          - KarpenterSetupRole
+          - Arn
+      Environment:
+        Variables:
+          EKS_CLUSTER_NAME:
+            Fn::If:
+              - CreateEKSClusterStackCondition
+              - Fn::GetAtt:
+                  - EKSClusterStack
+                  - Outputs.EKSClusterName
+              - Ref: EKSClusterName
+          HYPERPOD_CLUSTER_NAME:
+            Fn::GetAtt:
+              - HyperPodClusterStack
+              - Outputs.HyperPodClusterName
+          NODECLASS_NAME:
+            Fn::Sub: ${ResourceNamePrefix}-nodeclass
+          NODEPOOL_NAME:
+            Fn::Sub: ${ResourceNamePrefix}-nodepool
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import json
+          import base64
+          import os
+          import urllib.request
+          import ssl
+          
+          def get_eks_token(cluster_name):
+              session = boto3.Session(region_name=os.environ['AWS_REGION'])
+              sts = session.client('sts')
+              def retrieve_k8s_aws_id(params, context, **kwargs):
+                  if 'x-k8s-aws-id' in params:
+                      context['x-k8s-aws-id'] = params.pop('x-k8s-aws-id')
+              def inject_k8s_aws_id_header(request, **kwargs):
+                  if 'x-k8s-aws-id' in request.context:
+                      request.headers['x-k8s-aws-id'] = request.context['x-k8s-aws-id']
+              sts.meta.events.register('provide-client-params.sts.GetCallerIdentity', retrieve_k8s_aws_id)
+              sts.meta.events.register('before-sign.sts.GetCallerIdentity', inject_k8s_aws_id_header)
+              url = sts.generate_presigned_url('get_caller_identity', Params={'x-k8s-aws-id': cluster_name}, ExpiresIn=60, HttpMethod='GET')
+              return 'k8s-aws-v1.' + base64.urlsafe_b64encode(url.encode()).decode().rstrip('=')
+          
+          def k8s_request(endpoint, ca_data, token, method, path, body=None):
+              url = f"{endpoint}{path}"
+              headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/yaml'}
+              data = body.encode() if body else None
+              ctx = ssl.create_default_context()
+              ctx.load_verify_locations(cadata=base64.b64decode(ca_data).decode())
+              req = urllib.request.Request(url, data=data, headers=headers, method=method)
+              try:
+                  with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
+                      return resp.status, resp.read().decode()
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read().decode()
+          
+          def handler(event, context):
+              if event['RequestType'] == 'Delete':
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                  return
+              try:
+                  import time
+                  cluster_name = os.environ['EKS_CLUSTER_NAME']
+                  hyperpod_cluster_name = os.environ['HYPERPOD_CLUSTER_NAME']
+                  nodeclass_name = os.environ['NODECLASS_NAME']
+                  nodepool_name = os.environ['NODEPOOL_NAME']
+                  
+                  sagemaker = boto3.client('sagemaker')
+                  hyperpod_cluster = sagemaker.describe_cluster(ClusterName=hyperpod_cluster_name)
+                  instance_groups = [ig['InstanceGroupName'] for ig in hyperpod_cluster['InstanceGroups']]
+                  print(f"Found {len(instance_groups)} instance groups: {instance_groups}")
+                  
+                  eks = boto3.client('eks')
+                  cluster = eks.describe_cluster(name=cluster_name)['cluster']
+                  endpoint, ca_data = cluster['endpoint'], cluster['certificateAuthority']['data']
+                  token = get_eks_token(cluster_name)
+                  
+                  nodeclass_yaml = f"apiVersion: karpenter.sagemaker.amazonaws.com/v1\nkind: HyperpodNodeClass\nmetadata:\n  name: {nodeclass_name}\nspec:\n  instanceGroups:\n"
+                  for ig in instance_groups:
+                      nodeclass_yaml += f"    - {ig.strip()}\n"
+                  print(f"Creating NodeClass:\n{nodeclass_yaml}")
+                  
+                  for attempt in range(5):
+                      status, resp = k8s_request(endpoint, ca_data, token, 'POST', '/apis/karpenter.sagemaker.amazonaws.com/v1/hyperpodnodeclasses', nodeclass_yaml)
+                      if status in [200, 201, 409]: break
+                      if status == 401 and attempt < 4:
+                          print(f"Got 401, waiting for AccessEntry propagation (attempt {attempt + 1}/5)...")
+                          time.sleep(10)
+                          token = get_eks_token(cluster_name)
+                          continue
+                      raise Exception(f"Failed to create NodeClass: {status} {resp}")
+                  print(f"NodeClass response: {status}")
+                  
+                  nodepool_yaml = f"apiVersion: karpenter.sh/v1\nkind: NodePool\nmetadata:\n  name: {nodepool_name}\nspec:\n  template:\n    spec:\n      nodeClassRef:\n        group: karpenter.sagemaker.amazonaws.com\n        kind: HyperpodNodeClass\n        name: {nodeclass_name}\n      expireAfter: Never\n      requirements:\n        - key: node.kubernetes.io/instance-type\n          operator: Exists\n  disruption:\n    consolidationPolicy: WhenEmptyOrUnderutilized\n    consolidateAfter: 30m\n"
+                  print(f"Creating NodePool:\n{nodepool_yaml}")
+                  status, resp = k8s_request(endpoint, ca_data, token, 'POST', '/apis/karpenter.sh/v1/nodepools', nodepool_yaml)
+                  if status not in [200, 201, 409]:
+                      raise Exception(f"Failed to create NodePool: {status} {resp}")
+                  print(f"NodePool response: {status}")
+                  
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {'NodeClassName': nodeclass_name, 'NodePoolName': nodepool_name})
+              except Exception as e:
+                  print(f"Error: {str(e)}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+
+  KarpenterSetup:
+    Type: Custom::KarpenterSetup
+    Condition: KarpenterEnabledCondition
+    DependsOn:
+      - HyperPodClusterStack
+      - KarpenterSetupAccessEntry
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - KarpenterSetupFunction
+          - Arn
+
   CertManagerStack:
     Type: AWS::CloudFormation::Stack
     Properties:
