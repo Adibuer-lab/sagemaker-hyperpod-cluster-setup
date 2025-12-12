@@ -35,6 +35,7 @@ Resources:
       aws:cdk:path: PrivateSubnetTaggingCfnTemplate/SubnetTaggingLambdaRole
   SubnetTaggingFunction:
     Type: AWS::Lambda::Function
+    DependsOn: SubnetTaggingLambdaRole
     Properties:
       Code:
         S3Bucket:
