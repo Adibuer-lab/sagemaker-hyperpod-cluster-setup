@@ -1526,13 +1526,30 @@ Resources:
                 - VPCStack
                 - Outputs.VpcId
             - Ref: VpcId
+        # Include EKS cluster security group so the IAM role has permissions to create ENIs
+        # with both the user-provided SG and the EKS auto-created cluster SG
         SecurityGroupIds:
           Fn::If:
-            - CreateSecurityGroupStackCondition
-            - Fn::GetAtt:
-                - SecurityGroupStack
-                - Outputs.SecurityGroupId
-            - Ref: SecurityGroupIds
+            - CreateEKSClusterStackCondition
+            # When we create EKS: combine passed SG + EKS cluster SG
+            - Fn::Join:
+                - ','
+                - - Fn::If:
+                      - CreateSecurityGroupStackCondition
+                      - Fn::GetAtt:
+                          - SecurityGroupStack
+                          - Outputs.SecurityGroupId
+                      - Ref: SecurityGroupIds
+                  - Fn::GetAtt:
+                      - EKSClusterStack
+                      - Outputs.EKSClusterSecurityGroupId
+            # When using existing EKS: just use passed SG (user must configure SG rules manually)
+            - Fn::If:
+                - CreateSecurityGroupStackCondition
+                - Fn::GetAtt:
+                    - SecurityGroupStack
+                    - Outputs.SecurityGroupId
+                - Ref: SecurityGroupIds
         PrivateSubnetIds:
           Fn::If:
             - CreatePrivateSubnetStackCondition

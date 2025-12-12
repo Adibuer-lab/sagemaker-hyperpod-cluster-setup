@@ -195,6 +195,26 @@ Resources:
     Metadata:
       aws:cdk:path: EksCfnTemplate/FargateProfileControllers
 
+  # Fargate Profile 3: KEDA components for event-driven autoscaling
+  FargateProfileKeda:
+    Type: AWS::EKS::FargateProfile
+    DependsOn: FargateProfileControllers
+    Properties:
+      ClusterName:
+        Ref: EKSCluster
+      FargateProfileName: keda-pods
+      PodExecutionRoleArn:
+        Fn::GetAtt:
+          - FargatePodExecutionRole
+          - Arn
+      Subnets:
+        Ref: EksPrivateSubnetIds
+      Selectors:
+        # All KEDA components (operator, metrics-apiserver, admission-webhooks)
+        - Namespace: keda
+    Metadata:
+      aws:cdk:path: EksCfnTemplate/FargateProfileKeda
+
   # =============================================================================
   # EKS ADDONS
   # =============================================================================
