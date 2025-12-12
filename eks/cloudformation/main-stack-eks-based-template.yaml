@@ -536,6 +536,14 @@ Parameters:
       - Karpenter
       - None
     Description: The type of autoscaler to use
+  InstanceGroupSettingsSSMParam:
+    Type: String
+    Default: ''
+    Description: SSM parameter name containing combined instance group settings (avoids Lambda 4KB env var limit)
+  RigSettingsSSMParam:
+    Type: String
+    Default: ''
+    Description: SSM parameter name containing combined RIG settings
   InstanceGroupSettings1:
     Type: String
     Default: '[]'
@@ -1725,6 +1733,10 @@ Resources:
             - Ref: OnCreatePath
         EnableHPTrainingOperatorFeature:
           Ref: EnableHPTrainingOperatorFeature
+        InstanceGroupSettingsSSMParam:
+          Ref: InstanceGroupSettingsSSMParam
+        RigSettingsSSMParam:
+          Ref: RigSettingsSSMParam
         InstanceGroupSettings1:
           Ref: InstanceGroupSettings1
         InstanceGroupSettings2:

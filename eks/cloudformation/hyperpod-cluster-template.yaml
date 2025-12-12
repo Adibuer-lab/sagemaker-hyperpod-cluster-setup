@@ -86,6 +86,14 @@ Parameters:
       JSON string containing tiered storage configuration for the SageMaker HyperPod cluster. Format:
       {"InstanceMemoryAllocationPercentage": Integer (0-100), "Mode": String ("Enable" or "Disable")}. Only applicable
       for EKS-based clusters.
+  InstanceGroupSettingsSSMParam:
+    Type: String
+    Default: ''
+    Description: SSM parameter name containing combined instance group settings (avoids Lambda 4KB env var limit)
+  RigSettingsSSMParam:
+    Type: String
+    Default: ''
+    Description: SSM parameter name containing combined RIG settings
   InstanceGroupSettings1:
     Type: String
     Default: '[]'
@@ -402,6 +410,14 @@ Resources:
                   - ec2:DescribeSubnets
                   - ec2:DescribeVpcs
                 Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:GetParametersByPath
+                Resource:
+                  - Fn::Sub: arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ResourceNamePrefix}/*
+                  - Fn::Sub: arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/hyperpod/${ResourceNamePrefix}/*
           PolicyName:
             Fn::Sub: ${ResourceNamePrefix}-Policy
     Metadata:
@@ -431,6 +447,10 @@ Resources:
             Fn::Sub: arn:aws:iam::${AWS::AccountId}:role/${SageMakerIAMRoleName}
           S3_BUCKET_NAME:
             Ref: S3BucketName
+          INSTANCE_GROUP_SETTINGS_SSM_PARAM:
+            Ref: InstanceGroupSettingsSSMParam
+          RIG_SETTINGS_SSM_PARAM:
+            Ref: RigSettingsSSMParam
           ON_CREATE_PATH:
             Ref: OnCreatePath
           CLUSTER_TAGS:
@@ -448,87 +468,6 @@ Resources:
             Ref: EnableHPTrainingOperatorFeature
           TIERED_STORAGE_CONFIG:
             Ref: TieredStorageConfig
-          INSTANCE_GROUP_SETTINGS1:
-            Ref: InstanceGroupSettings1
-          RIG_SETTINGS1:
-            Ref: RigSettings1
-          INSTANCE_GROUP_SETTINGS2:
-            Ref: InstanceGroupSettings2
-          RIG_SETTINGS2:
-            Ref: RigSettings2
-          INSTANCE_GROUP_SETTINGS3:
-            Ref: InstanceGroupSettings3
-          RIG_SETTINGS3:
-            Ref: RigSettings3
-          INSTANCE_GROUP_SETTINGS4:
-            Ref: InstanceGroupSettings4
-          RIG_SETTINGS4:
-            Ref: RigSettings4
-          INSTANCE_GROUP_SETTINGS5:
-            Ref: InstanceGroupSettings5
-          RIG_SETTINGS5:
-            Ref: RigSettings5
-          INSTANCE_GROUP_SETTINGS6:
-            Ref: InstanceGroupSettings6
-          RIG_SETTINGS6:
-            Ref: RigSettings6
-          INSTANCE_GROUP_SETTINGS7:
-            Ref: InstanceGroupSettings7
-          RIG_SETTINGS7:
-            Ref: RigSettings7
-          INSTANCE_GROUP_SETTINGS8:
-            Ref: InstanceGroupSettings8
-          RIG_SETTINGS8:
-            Ref: RigSettings8
-          INSTANCE_GROUP_SETTINGS9:
-            Ref: InstanceGroupSettings9
-          RIG_SETTINGS9:
-            Ref: RigSettings9
-          INSTANCE_GROUP_SETTINGS10:
-            Ref: InstanceGroupSettings10
-          RIG_SETTINGS10:
-            Ref: RigSettings10
-          INSTANCE_GROUP_SETTINGS11:
-            Ref: InstanceGroupSettings11
-          RIG_SETTINGS11:
-            Ref: RigSettings11
-          INSTANCE_GROUP_SETTINGS12:
-            Ref: InstanceGroupSettings12
-          RIG_SETTINGS12:
-            Ref: RigSettings12
-          INSTANCE_GROUP_SETTINGS13:
-            Ref: InstanceGroupSettings13
-          RIG_SETTINGS13:
-            Ref: RigSettings13
-          INSTANCE_GROUP_SETTINGS14:
-            Ref: InstanceGroupSettings14
-          RIG_SETTINGS14:
-            Ref: RigSettings14
-          INSTANCE_GROUP_SETTINGS15:
-            Ref: InstanceGroupSettings15
-          RIG_SETTINGS15:
-            Ref: RigSettings15
-          INSTANCE_GROUP_SETTINGS16:
-            Ref: InstanceGroupSettings16
-          RIG_SETTINGS16:
-            Ref: RigSettings16
-          INSTANCE_GROUP_SETTINGS17:
-            Ref: InstanceGroupSettings17
-          RIG_SETTINGS17:
-            Ref: RigSettings17
-          INSTANCE_GROUP_SETTINGS18:
-            Ref: InstanceGroupSettings18
-          RIG_SETTINGS18:
-            Ref: RigSettings18
-          INSTANCE_GROUP_SETTINGS19:
-            Ref: InstanceGroupSettings19
-          RIG_SETTINGS19:
-            Ref: RigSettings19
-          INSTANCE_GROUP_SETTINGS20:
-            Ref: InstanceGroupSettings20
-          RIG_SETTINGS20:
-            Ref: RigSettings20
-          NUMBER_OF_INSTANCE_GROUPS: '20'
       FunctionName:
         Fn::Sub:
           - ${ResourceNamePrefix}hpfunc
