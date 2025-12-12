@@ -187,18 +187,50 @@ Resources:
           Labels:
             - Key: control-plane
               Value: hyperpod-observability-controller-manager
-        # HyperPod Inference Operator controller
-        - Namespace: hyperpod-inference-system
-          Labels:
-            - Key: control-plane
-              Value: controller-manager
     Metadata:
       aws:cdk:path: EksCfnTemplate/FargateProfileControllers
 
-  # Fargate Profile 3: KEDA components for event-driven autoscaling (in kube-system namespace)
-  FargateProfileKeda:
+  # Fargate Profile 3: HyperPod Inference Operator components
+  FargateProfileInferenceOperator:
     Type: AWS::EKS::FargateProfile
     DependsOn: FargateProfileControllers
+    Properties:
+      ClusterName:
+        Ref: EKSCluster
+      FargateProfileName: inference-operator-pods
+      PodExecutionRoleArn:
+        Fn::GetAtt:
+          - FargatePodExecutionRole
+          - Arn
+      Subnets:
+        Ref: EksPrivateSubnetIds
+      Selectors:
+        # Inference Operator controller manager
+        - Namespace: hyperpod-inference-system
+          Labels:
+            - Key: control-plane
+              Value: hyperpod-inference-operator-controller-manager
+        # Inference Operator ALB
+        - Namespace: kube-system
+          Labels:
+            - Key: app.kubernetes.io/instance
+              Value: hyperpod-inference-operator
+            - Key: app.kubernetes.io/name
+              Value: alb
+        # Inference Operator metrics
+        - Namespace: kube-system
+          Labels:
+            - Key: app.kubernetes.io/instance
+              Value: hyperpod-inference-operator
+            - Key: app.kubernetes.io/name
+              Value: metrics
+    Metadata:
+      aws:cdk:path: EksCfnTemplate/FargateProfileInferenceOperator
+
+  # Fargate Profile 4: KEDA components for event-driven autoscaling (in kube-system namespace)
+  FargateProfileKeda:
+    Type: AWS::EKS::FargateProfile
+    DependsOn: FargateProfileInferenceOperator
     Properties:
       ClusterName:
         Ref: EKSCluster
