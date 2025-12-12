@@ -2010,7 +2010,7 @@ Resources:
                       raise Exception(f"Failed to create NodeClass: {status} {resp}")
                   print(f"NodeClass response: {status}")
                   
-                  nodepool_yaml = f"apiVersion: karpenter.sh/v1\nkind: NodePool\nmetadata:\n  name: {nodepool_name}\nspec:\n  template:\n    spec:\n      nodeClassRef:\n        group: karpenter.sagemaker.amazonaws.com\n        kind: HyperpodNodeClass\n        name: {nodeclass_name}\n      expireAfter: Never\n      requirements:\n        - key: node.kubernetes.io/instance-type\n          operator: Exists\n  disruption:\n    consolidationPolicy: WhenEmptyOrUnderutilized\n    consolidateAfter: 30m\n"
+                  nodepool_yaml = f"apiVersion: karpenter.sh/v1\nkind: NodePool\nmetadata:\n  name: {nodepool_name}\nspec:\n  template:\n    spec:\n      nodeClassRef:\n        group: karpenter.sagemaker.amazonaws.com\n        kind: HyperpodNodeClass\n        name: {nodeclass_name}\n      expireAfter: Never\n      requirements:\n        - key: node.kubernetes.io/instance-type\n          operator: Exists\n        - key: node-role\n          operator: Exists\n  disruption:\n    consolidationPolicy: WhenEmptyOrUnderutilized\n    consolidateAfter: 30m\n"
                   print(f"Creating NodePool:\n{nodepool_yaml}")
                   status, resp = k8s_request(endpoint, ca_data, token, 'POST', '/apis/karpenter.sh/v1/nodepools', nodepool_yaml)
                   if status not in [200, 201, 409]:
