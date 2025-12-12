@@ -2685,6 +2685,8 @@ Resources:
             - CustomBucketCondition
             - Ref: CustomBucketName
             - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
+        LayerS3Key: resources/artifacts/fsx-lambda-layer.zip
+        FunctionS3Key: resources/artifacts/workspace-templates-lambda-function.zip
         UserNamespaces:
           Ref: DataScientistRole1Namespaces
     Metadata:
@@ -2839,12 +2841,6 @@ Outputs:
         - HPTrainingOperatorMainStack
         - Outputs.HPTOIAMRoleName
     Condition: EnableHPTrainingOperatorFeatureCondition
-  OutputSpacesControllerRoleArn:
-    Value:
-      Fn::GetAtt:
-        - SpacesAddonStack
-        - Outputs.SpacesControllerRoleArn
-    Condition: EnableSpacesFeatureCondition
   OutputSpacesJupyterCPUTemplate:
     Value:
       Fn::GetAtt:

@@ -11,19 +11,22 @@ Parameters:
     Default: aws-sagemaker-hyperpod-cluster-setup-us-east-2-prod
   LayerS3Key:
     Type: String
-    Default: resources/artifacts/helm-lambda-layer.zip
+    Default: resources/artifacts/fsx-lambda-layer.zip
+    Description: The S3 key for the lambda layer zip file
   FunctionS3Key:
     Type: String
     Default: resources/artifacts/workspace-templates-lambda-function.zip
   UserNamespaces:
     Type: String
     Default: kubeflow
-    Description: Comma-separated list of namespaces (for reference)
+    Description: Unused - kept for main-stack compatibility
 
 Resources:
   WorkspaceTemplatesRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName:
+        Fn::Sub: ${ResourceNamePrefix}-workspace-templates-role
       AssumeRolePolicyDocument:
         Statement:
           - Action: sts:AssumeRole
@@ -72,41 +75,41 @@ Resources:
           Ref: CustomResourceS3Bucket
         S3Key:
           Ref: LayerS3Key
-      Description: Lambda Layer for kubectl
+      Description: Lambda Layer for kubectl and aws-iam-authenticator
       LayerName:
         Fn::Sub: ${ResourceNamePrefix}-workspace-templates-layer
 
   WorkspaceTemplatesFunction:
     Type: AWS::Lambda::Function
-    DependsOn: WorkspaceTemplatesAccessEntry
     Properties:
-      FunctionName:
-        Fn::Sub: ${ResourceNamePrefix}-workspace-templates
-      Runtime: python3.12
-      Handler: lambda_function.lambda_handler
-      Timeout: 300
-      MemorySize: 512
-      Role:
-        Fn::GetAtt:
-          - WorkspaceTemplatesRole
-          - Arn
-      Layers:
-        - Ref: WorkspaceTemplatesLayer
+      Code:
+        S3Bucket:
+          Ref: CustomResourceS3Bucket
+        S3Key:
+          Ref: FunctionS3Key
       Environment:
         Variables:
           CLUSTER_NAME:
             Ref: EKSClusterName
           PATH: /opt/python/bin:/var/lang/bin:/usr/local/bin:/usr/bin/:/bin
           KUBECONFIG: /tmp/.kube/config
-      Code:
-        S3Bucket:
-          Ref: CustomResourceS3Bucket
-        S3Key:
-          Ref: FunctionS3Key
+          LD_LIBRARY_PATH: /opt/python/lib
+      FunctionName:
+        Fn::Sub: ${ResourceNamePrefix}-workspace-templates
+      Handler: lambda_function.lambda_handler
+      Layers:
+        - Ref: WorkspaceTemplatesLayer
+      Role:
+        Fn::GetAtt:
+          - WorkspaceTemplatesRole
+          - Arn
+      Runtime: python3.12
+      Timeout: 300
+    DependsOn:
+      - WorkspaceTemplatesAccessEntry
 
   WorkspaceTemplatesCustomResource:
     Type: AWS::CloudFormation::CustomResource
-    DependsOn: WorkspaceTemplatesFunction
     Properties:
       ServiceToken:
         Fn::GetAtt:
