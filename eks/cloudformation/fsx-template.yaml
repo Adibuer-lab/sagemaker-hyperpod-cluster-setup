@@ -71,6 +71,10 @@ Parameters:
     Type: String
     Default: ''
     Description: Existing FSx for Lustre file system
+  UserNamespaces:
+    Type: String
+    Default: 'kubeflow'
+    Description: Comma-separated list of namespaces to create FSx PVC in (e.g., kubeflow,default)
 Conditions:
   UseFsxFileSystemIdCondition:
     Fn::Not:
@@ -434,6 +438,8 @@ Resources:
               - UseFsxFileSystemIdCondition
               - Ref: FsxFileSystemId
               - Ref: FSxLustreFileSystem
+          USER_NAMESPACES:
+            Ref: UserNamespaces
           PATH: /opt/python/bin:/var/lang/bin:/usr/local/bin:/usr/bin/:/bin
           GIT_EXEC_PATH: /opt/python/libexec/git-core
           KUBECONFIG: /tmp/.kube/config

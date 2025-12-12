@@ -31,5 +31,6 @@ run grafana-service-token generate-grafana-service-token-lambda-zip.sh
 run observability-stack generate-observability-stack-lambda-zip.sh
 run cluster-policy generate-cluster-policy-lambda-zip.sh
 run coredns-restart generate-coredns-restart-lambda-func.sh
+run workspace-templates generate-workspace-templates-lambda-func.sh
 
 echo "=== Done ==="

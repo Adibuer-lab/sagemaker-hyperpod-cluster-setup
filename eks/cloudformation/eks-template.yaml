@@ -228,6 +228,39 @@ Resources:
     Metadata:
       aws:cdk:path: EksCfnTemplate/FargateProfileKeda
 
+  # Fargate Profile 4: SageMaker Spaces controller components
+  FargateProfileSpaces:
+    Type: AWS::EKS::FargateProfile
+    DependsOn: FargateProfileKeda
+    Properties:
+      ClusterName:
+        Ref: EKSCluster
+      FargateProfileName: spaces-pods
+      PodExecutionRoleArn:
+        Fn::GetAtt:
+          - FargatePodExecutionRole
+          - Arn
+      Subnets:
+        Ref: EksPrivateSubnetIds
+      Selectors:
+        # Spaces controller manager
+        - Namespace: jupyter-k8s-system
+          Labels:
+            - Key: control-plane
+              Value: controller-manager
+        # Spaces auth middleware (WebUI router)
+        - Namespace: jupyter-k8s-system
+          Labels:
+            - Key: app.kubernetes.io/name
+              Value: jupyter-k8s-authmiddleware
+        # Traefik ingress controller (WebUI)
+        - Namespace: jupyter-k8s-system
+          Labels:
+            - Key: app.kubernetes.io/name
+              Value: traefik
+    Metadata:
+      aws:cdk:path: EksCfnTemplate/FargateProfileSpaces
+
   # =============================================================================
   # EKS ADDONS
   # =============================================================================

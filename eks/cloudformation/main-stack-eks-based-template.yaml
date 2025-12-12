@@ -17,6 +17,7 @@ Metadata:
           - EnableHPInferenceFeature
           - EnableObservabilityFeature
           - EnableHPTrainingOperatorFeature
+          - EnableSpacesFeature
       - Label:
           default: HyperPod Cluster
         Parameters:
@@ -183,6 +184,8 @@ Metadata:
         default: Feature flag for enabling observability
       EnableHPTrainingOperatorFeature:
         default: Feature flag for enabling HP training operator
+      EnableSpacesFeature:
+        default: Feature flag for enabling SageMaker Spaces
       CustomBucketName:
         default: Custom S3 Bucket Name
       NodeRecovery:
@@ -394,6 +397,13 @@ Parameters:
       - 'true'
       - 'false'
     Description: Set to "true" to enable the HP training operator, "false" otherwise.
+  EnableSpacesFeature:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Set to "true" to enable SageMaker Spaces (JupyterLab/Code Editor workspaces), "false" otherwise.
   HasGatedAccess:
     Type: String
     Default: 'false'
@@ -1063,6 +1073,10 @@ Conditions:
   EnableHPTrainingOperatorFeatureCondition:
     Fn::Equals:
       - Ref: EnableHPTrainingOperatorFeature
+      - 'true'
+  EnableSpacesFeatureCondition:
+    Fn::Equals:
+      - Ref: EnableSpacesFeature
       - 'true'
   CreateVPCStackCondition:
     Fn::Equals:
@@ -2149,6 +2163,8 @@ Resources:
           Ref: StorageCapacity
         FsxFileSystemId:
           Ref: FsxFileSystemId
+        UserNamespaces:
+          Ref: DataScientistRole1Namespaces
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/FsxStack
     Condition: CreateFsxStackCondition
@@ -2602,6 +2618,65 @@ Resources:
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/HPTrainingOperatorMainStack
     Condition: EnableHPTrainingOperatorFeatureCondition
+  # =============================================================================
+  # SAGEMAKER SPACES STACKS
+  # =============================================================================
+  SpacesAddonStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: EnableSpacesFeatureCondition
+    DependsOn:
+      - EKSClusterStack
+      - HyperPodClusterStack
+    Properties:
+      TemplateURL:
+        Fn::If:
+          - CustomBucketCondition
+          - Fn::Sub: https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/spaces-addon-template.yaml
+          - Fn::Sub: >-
+              https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/spaces-addon-template.yaml
+      Parameters:
+        ResourceNamePrefix:
+          Ref: ResourceNamePrefix
+        EKSClusterName:
+          Fn::If:
+            - CreateEKSClusterStackCondition
+            - Fn::GetAtt:
+                - EKSClusterStack
+                - Outputs.EKSClusterName
+            - Ref: EKSClusterName
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/SpacesAddonStack
+  WorkspaceTemplatesStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: EnableSpacesFeatureCondition
+    DependsOn:
+      - SpacesAddonStack
+    Properties:
+      TemplateURL:
+        Fn::If:
+          - CustomBucketCondition
+          - Fn::Sub: https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/workspace-templates-template.yaml
+          - Fn::Sub: >-
+              https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/workspace-templates-template.yaml
+      Parameters:
+        ResourceNamePrefix:
+          Ref: ResourceNamePrefix
+        EKSClusterName:
+          Fn::If:
+            - CreateEKSClusterStackCondition
+            - Fn::GetAtt:
+                - EKSClusterStack
+                - Outputs.EKSClusterName
+            - Ref: EKSClusterName
+        CustomResourceS3Bucket:
+          Fn::If:
+            - CustomBucketCondition
+            - Ref: CustomBucketName
+            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
+        UserNamespaces:
+          Ref: DataScientistRole1Namespaces
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/WorkspaceTemplatesStack
   TieredStorageUpdateStack:
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -2752,3 +2827,33 @@ Outputs:
         - HPTrainingOperatorMainStack
         - Outputs.HPTOIAMRoleName
     Condition: EnableHPTrainingOperatorFeatureCondition
+  OutputSpacesControllerRoleArn:
+    Value:
+      Fn::GetAtt:
+        - SpacesAddonStack
+        - Outputs.SpacesControllerRoleArn
+    Condition: EnableSpacesFeatureCondition
+  OutputSpacesJupyterCPUTemplate:
+    Value:
+      Fn::GetAtt:
+        - WorkspaceTemplatesStack
+        - Outputs.JupyterCPUTemplateName
+    Condition: EnableSpacesFeatureCondition
+  OutputSpacesJupyterGPUTemplate:
+    Value:
+      Fn::GetAtt:
+        - WorkspaceTemplatesStack
+        - Outputs.JupyterGPUTemplateName
+    Condition: EnableSpacesFeatureCondition
+  OutputSpacesCodeEditorCPUTemplate:
+    Value:
+      Fn::GetAtt:
+        - WorkspaceTemplatesStack
+        - Outputs.CodeEditorCPUTemplateName
+    Condition: EnableSpacesFeatureCondition
+  OutputSpacesCodeEditorGPUTemplate:
+    Value:
+      Fn::GetAtt:
+        - WorkspaceTemplatesStack
+        - Outputs.CodeEditorGPUTemplateName
+    Condition: EnableSpacesFeatureCondition
