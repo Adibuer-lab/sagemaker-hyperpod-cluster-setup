@@ -17,6 +17,7 @@ Metadata:
           - EnableHPInferenceFeature
           - EnableObservabilityFeature
           - EnableHPTrainingOperatorFeature
+          - EnableSpacesFeature
       - Label:
           default: HyperPod Cluster
         Parameters:
@@ -183,6 +184,8 @@ Metadata:
         default: Feature flag for enabling observability
       EnableHPTrainingOperatorFeature:
         default: Feature flag for enabling HP training operator
+      EnableSpacesFeature:
+        default: Feature flag for enabling SageMaker Spaces
       CustomBucketName:
         default: Custom S3 Bucket Name
       NodeRecovery:
@@ -394,6 +397,13 @@ Parameters:
       - 'true'
       - 'false'
     Description: Set to "true" to enable the HP training operator, "false" otherwise.
+  EnableSpacesFeature:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Set to "true" to enable SageMaker Spaces (JupyterLab/Code Editor workspaces), "false" otherwise.
   HasGatedAccess:
     Type: String
     Default: 'false'
@@ -445,6 +455,10 @@ Parameters:
     Type: String
     Default: sg-1234567890abcdef0
     Description: The Id of your cluster security group.
+  NfsSecurityGroupId:
+    Type: String
+    Default: ''
+    Description: SageMaker domain NFS security group ID for FSx Lustre access (optional)
   PrivateRouteTableIds:
     Type: String
     Default: rtb-1234567890abcdef0
@@ -526,6 +540,14 @@ Parameters:
       - Karpenter
       - None
     Description: The type of autoscaler to use
+  InstanceGroupSettingsSSMParam:
+    Type: String
+    Default: ''
+    Description: SSM parameter name containing combined instance group settings (avoids Lambda 4KB env var limit)
+  RigSettingsSSMParam:
+    Type: String
+    Default: ''
+    Description: SSM parameter name containing combined RIG settings
   InstanceGroupSettings1:
     Type: String
     Default: '[]'
@@ -1063,6 +1085,10 @@ Conditions:
   EnableHPTrainingOperatorFeatureCondition:
     Fn::Equals:
       - Ref: EnableHPTrainingOperatorFeature
+      - 'true'
+  EnableSpacesFeatureCondition:
+    Fn::Equals:
+      - Ref: EnableSpacesFeature
       - 'true'
   CreateVPCStackCondition:
     Fn::Equals:
@@ -1711,6 +1737,10 @@ Resources:
             - Ref: OnCreatePath
         EnableHPTrainingOperatorFeature:
           Ref: EnableHPTrainingOperatorFeature
+        InstanceGroupSettingsSSMParam:
+          Ref: InstanceGroupSettingsSSMParam
+        RigSettingsSSMParam:
+          Ref: RigSettingsSSMParam
         InstanceGroupSettings1:
           Ref: InstanceGroupSettings1
         InstanceGroupSettings2:
@@ -1886,7 +1916,7 @@ Resources:
       FunctionName:
         Fn::Sub: ${ResourceNamePrefix}-karpenter-setup
       Runtime: python3.12
-      Handler: index.handler
+      Handler: lambda_function.handler
       Timeout: 300
       MemorySize: 256
       Role:
@@ -1911,90 +1941,12 @@ Resources:
           NODEPOOL_NAME:
             Fn::Sub: ${ResourceNamePrefix}-nodepool
       Code:
-        ZipFile: |
-          import boto3
-          import cfnresponse
-          import json
-          import base64
-          import os
-          import urllib.request
-          import ssl
-          
-          def get_eks_token(cluster_name):
-              session = boto3.Session(region_name=os.environ['AWS_REGION'])
-              sts = session.client('sts')
-              def retrieve_k8s_aws_id(params, context, **kwargs):
-                  if 'x-k8s-aws-id' in params:
-                      context['x-k8s-aws-id'] = params.pop('x-k8s-aws-id')
-              def inject_k8s_aws_id_header(request, **kwargs):
-                  if 'x-k8s-aws-id' in request.context:
-                      request.headers['x-k8s-aws-id'] = request.context['x-k8s-aws-id']
-              sts.meta.events.register('provide-client-params.sts.GetCallerIdentity', retrieve_k8s_aws_id)
-              sts.meta.events.register('before-sign.sts.GetCallerIdentity', inject_k8s_aws_id_header)
-              url = sts.generate_presigned_url('get_caller_identity', Params={'x-k8s-aws-id': cluster_name}, ExpiresIn=60, HttpMethod='GET')
-              return 'k8s-aws-v1.' + base64.urlsafe_b64encode(url.encode()).decode().rstrip('=')
-          
-          def k8s_request(endpoint, ca_data, token, method, path, body=None):
-              url = f"{endpoint}{path}"
-              headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/yaml'}
-              data = body.encode() if body else None
-              ctx = ssl.create_default_context()
-              ctx.load_verify_locations(cadata=base64.b64decode(ca_data).decode())
-              req = urllib.request.Request(url, data=data, headers=headers, method=method)
-              try:
-                  with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
-                      return resp.status, resp.read().decode()
-              except urllib.error.HTTPError as e:
-                  return e.code, e.read().decode()
-          
-          def handler(event, context):
-              if event['RequestType'] == 'Delete':
-                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
-                  return
-              try:
-                  import time
-                  cluster_name = os.environ['EKS_CLUSTER_NAME']
-                  hyperpod_cluster_name = os.environ['HYPERPOD_CLUSTER_NAME']
-                  nodeclass_name = os.environ['NODECLASS_NAME']
-                  nodepool_name = os.environ['NODEPOOL_NAME']
-                  
-                  sagemaker = boto3.client('sagemaker')
-                  hyperpod_cluster = sagemaker.describe_cluster(ClusterName=hyperpod_cluster_name)
-                  instance_groups = [ig['InstanceGroupName'] for ig in hyperpod_cluster['InstanceGroups']]
-                  print(f"Found {len(instance_groups)} instance groups: {instance_groups}")
-                  
-                  eks = boto3.client('eks')
-                  cluster = eks.describe_cluster(name=cluster_name)['cluster']
-                  endpoint, ca_data = cluster['endpoint'], cluster['certificateAuthority']['data']
-                  token = get_eks_token(cluster_name)
-                  
-                  nodeclass_yaml = f"apiVersion: karpenter.sagemaker.amazonaws.com/v1\nkind: HyperpodNodeClass\nmetadata:\n  name: {nodeclass_name}\nspec:\n  instanceGroups:\n"
-                  for ig in instance_groups:
-                      nodeclass_yaml += f"    - {ig.strip()}\n"
-                  print(f"Creating NodeClass:\n{nodeclass_yaml}")
-                  
-                  for attempt in range(5):
-                      status, resp = k8s_request(endpoint, ca_data, token, 'POST', '/apis/karpenter.sagemaker.amazonaws.com/v1/hyperpodnodeclasses', nodeclass_yaml)
-                      if status in [200, 201, 409]: break
-                      if status == 401 and attempt < 4:
-                          print(f"Got 401, waiting for AccessEntry propagation (attempt {attempt + 1}/5)...")
-                          time.sleep(10)
-                          token = get_eks_token(cluster_name)
-                          continue
-                      raise Exception(f"Failed to create NodeClass: {status} {resp}")
-                  print(f"NodeClass response: {status}")
-                  
-                  nodepool_yaml = f"apiVersion: karpenter.sh/v1\nkind: NodePool\nmetadata:\n  name: {nodepool_name}\nspec:\n  template:\n    spec:\n      nodeClassRef:\n        group: karpenter.sagemaker.amazonaws.com\n        kind: HyperpodNodeClass\n        name: {nodeclass_name}\n      expireAfter: Never\n      requirements:\n        - key: node.kubernetes.io/instance-type\n          operator: Exists\n  disruption:\n    consolidationPolicy: WhenEmptyOrUnderutilized\n    consolidateAfter: 30m\n"
-                  print(f"Creating NodePool:\n{nodepool_yaml}")
-                  status, resp = k8s_request(endpoint, ca_data, token, 'POST', '/apis/karpenter.sh/v1/nodepools', nodepool_yaml)
-                  if status not in [200, 201, 409]:
-                      raise Exception(f"Failed to create NodePool: {status} {resp}")
-                  print(f"NodePool response: {status}")
-                  
-                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {'NodeClassName': nodeclass_name, 'NodePoolName': nodepool_name})
-              except Exception as e:
-                  print(f"Error: {str(e)}")
-                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+        S3Bucket:
+          Fn::If:
+            - CustomBucketCondition
+            - Ref: CustomBucketName
+            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
+        S3Key: resources/artifacts/karpenter-setup-lambda-function.zip
 
   KarpenterSetup:
     Type: Custom::KarpenterSetup
@@ -2139,6 +2091,8 @@ Resources:
                 - SecurityGroupStack
                 - Outputs.SecurityGroupId
             - Ref: SecurityGroupIds
+        NfsSecurityGroupId:
+          Ref: NfsSecurityGroupId
         PerUnitStorageThroughput:
           Ref: PerUnitStorageThroughput
         DataCompressionType:
@@ -2149,6 +2103,8 @@ Resources:
           Ref: StorageCapacity
         FsxFileSystemId:
           Ref: FsxFileSystemId
+        UserNamespaces:
+          Ref: DataScientistRole1Namespaces
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/FsxStack
     Condition: CreateFsxStackCondition
@@ -2602,6 +2558,67 @@ Resources:
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/HPTrainingOperatorMainStack
     Condition: EnableHPTrainingOperatorFeatureCondition
+  # =============================================================================
+  # SAGEMAKER SPACES STACKS
+  # =============================================================================
+  SpacesAddonStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: EnableSpacesFeatureCondition
+    DependsOn:
+      - EKSClusterStack
+      - HyperPodClusterStack
+    Properties:
+      TemplateURL:
+        Fn::If:
+          - CustomBucketCondition
+          - Fn::Sub: https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/spaces-addon-template.yaml
+          - Fn::Sub: >-
+              https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/spaces-addon-template.yaml
+      Parameters:
+        ResourceNamePrefix:
+          Ref: ResourceNamePrefix
+        EKSClusterName:
+          Fn::If:
+            - CreateEKSClusterStackCondition
+            - Fn::GetAtt:
+                - EKSClusterStack
+                - Outputs.EKSClusterName
+            - Ref: EKSClusterName
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/SpacesAddonStack
+  WorkspaceTemplatesStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: EnableSpacesFeatureCondition
+    DependsOn:
+      - SpacesAddonStack
+    Properties:
+      TemplateURL:
+        Fn::If:
+          - CustomBucketCondition
+          - Fn::Sub: https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/workspace-templates-template.yaml
+          - Fn::Sub: >-
+              https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/workspace-templates-template.yaml
+      Parameters:
+        ResourceNamePrefix:
+          Ref: ResourceNamePrefix
+        EKSClusterName:
+          Fn::If:
+            - CreateEKSClusterStackCondition
+            - Fn::GetAtt:
+                - EKSClusterStack
+                - Outputs.EKSClusterName
+            - Ref: EKSClusterName
+        CustomResourceS3Bucket:
+          Fn::If:
+            - CustomBucketCondition
+            - Ref: CustomBucketName
+            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
+        LayerS3Key: resources/artifacts/fsx-lambda-layer.zip
+        FunctionS3Key: resources/artifacts/workspace-templates-lambda-function.zip
+        UserNamespaces:
+          Ref: DataScientistRole1Namespaces
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/WorkspaceTemplatesStack
   TieredStorageUpdateStack:
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -2752,3 +2769,33 @@ Outputs:
         - HPTrainingOperatorMainStack
         - Outputs.HPTOIAMRoleName
     Condition: EnableHPTrainingOperatorFeatureCondition
+  OutputSpacesJupyterCPUTemplate:
+    Value:
+      Fn::GetAtt:
+        - WorkspaceTemplatesStack
+        - Outputs.JupyterCPUTemplateName
+    Condition: EnableSpacesFeatureCondition
+  OutputSpacesJupyterGPUTemplate:
+    Value:
+      Fn::GetAtt:
+        - WorkspaceTemplatesStack
+        - Outputs.JupyterGPUTemplateName
+    Condition: EnableSpacesFeatureCondition
+  OutputSpacesCodeEditorCPUTemplate:
+    Value:
+      Fn::GetAtt:
+        - WorkspaceTemplatesStack
+        - Outputs.CodeEditorCPUTemplateName
+    Condition: EnableSpacesFeatureCondition
+  OutputSpacesCodeEditorGPUTemplate:
+    Value:
+      Fn::GetAtt:
+        - WorkspaceTemplatesStack
+        - Outputs.CodeEditorGPUTemplateName
+    Condition: EnableSpacesFeatureCondition
+  OutputFsxFileSystemId:
+    Value:
+      Fn::GetAtt:
+        - FsxStack
+        - Outputs.FsxFileSystemId
+    Condition: CreateFsxStackCondition

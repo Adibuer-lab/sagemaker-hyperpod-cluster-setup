@@ -30,44 +30,54 @@ def lambda_handler(event, context):
         print(f"Exception: {str(e)}")
         cfnresponse.send(event, context, cfnresponse.FAILED, {'Reason': str(e)})
 
-def combine_settings(settings_prefix="INSTANCE_GROUP_SETTINGS"):
+# SSM client for reading parameters
+ssm_client = boto3.client('ssm')
+
+def get_ssm_parameter(param_name):
+    """Get a parameter value from SSM Parameter Store"""
+    try:
+        response = ssm_client.get_parameter(Name=param_name)
+        return response['Parameter']['Value']
+    except Exception as e:
+        print(f"Warning: Could not read SSM parameter {param_name}: {e}")
+        return '[]'
+
+def combine_settings(settings_type="instance-group-settings"):
     """
-    Combine all settings with the given prefix into a single array
+    Read combined settings from SSM Parameter Store
     
     Parameters:
-    settings_prefix (str): The prefix for environment variables to look for (e.g., "INSTANCE_GROUP_SETTINGS", "RIG_SETTINGS")
+    settings_type (str): "instance-group-settings" or "rig-settings"
     
     Returns:
-    list: Combined settings from all environment variables with the specified prefix
+    list: Combined settings from SSM parameter
     """
-    combined_settings = []
+    # Get SSM param name from env var
+    if settings_type == "instance-group-settings":
+        param_name = os.environ.get('INSTANCE_GROUP_SETTINGS_SSM_PARAM', '')
+    else:
+        param_name = os.environ.get('RIG_SETTINGS_SSM_PARAM', '')
     
-    # Get number of instance groups from environment variable or default to 20
-    num_groups = int(os.environ.get('NUMBER_OF_INSTANCE_GROUPS', 20))
+    if not param_name:
+        print(f"Warning: SSM param not set for {settings_type}")
+        return []
     
-    # Parse and merge each settings object
-    for i in range(1, num_groups + 1):
-        setting_key = f'{settings_prefix}{i}'
-        if setting_key in os.environ and os.environ[setting_key] and os.environ[setting_key] != '[]':
-            try:
-                settings_json = json.loads(os.environ[setting_key])
-                if isinstance(settings_json, list):
-                    if settings_json:
-                        # Process each item in settings_json
-                        for item in settings_json:
-                            # If the item is itself a list, extend with its contents
-                            if isinstance(item, list):
-                                combined_settings.extend(item)
-                            else:
-                                # Otherwise, just add the item directly
-                                combined_settings.append(item)
-                        print(f"Added settings from {setting_key}, current length: {len(combined_settings)}")
-                else:
-                    print(f"Warning: Expected list format for {setting_key}, but received {type(settings_json)}")
-            except json.JSONDecodeError:
-                print(f"Warning: Could not parse {setting_key} as JSON")
+    param_value = get_ssm_parameter(param_name)
     
-    return combined_settings
+    if not param_value or param_value == '[]':
+        return []
+    
+    try:
+        settings = json.loads(param_value)
+        if isinstance(settings, list):
+            print(f"Loaded {len(settings)} settings from {param_name}")
+            return settings
+        else:
+            print(f"Warning: Expected list from {param_name}, got {type(settings)}")
+            return []
+    except json.JSONDecodeError as e:
+        print(f"Warning: Could not parse {param_name} as JSON: {e}")
+        return []
 
 def enrich_instance_groups(instance_groups, isRig=False):
     """
@@ -466,7 +476,7 @@ def create_hyperpod_cluster(instance_groups):
         print(f"Adding tags to cluster: {tags}")
     
     # Get restricted instance groups if available
-    rig_groups = combine_settings("RIG_SETTINGS")
+    rig_groups = combine_settings("rig-settings")
     if rig_groups:
         rig_groups = enrich_instance_groups(rig_groups, isRig=True)  # Only add execution role
         create_params['RestrictedInstanceGroups'] = rig_groups
@@ -641,8 +651,8 @@ def on_create(event):
             "Reason": "HyperPod cluster creation initiated successfully"
         }
         
-        # Combine instance group settings
-        instance_groups = combine_settings("INSTANCE_GROUP_SETTINGS")
+        # Combine instance group settings from SSM
+        instance_groups = combine_settings("instance-group-settings")
         
         # Enrich instance groups with additional configuration
         if instance_groups:

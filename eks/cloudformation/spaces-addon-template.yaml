@@ -1,0 +1,28 @@
+Description: SageMaker Spaces Addon Stack for HyperPod
+
+Parameters:
+  ResourceNamePrefix:
+    Type: String
+    Default: sagemaker-hyperpod-eks
+    Description: Prefix for resource names
+  EKSClusterName:
+    Type: String
+    Description: Name of the EKS cluster
+
+Resources:
+  # SageMaker Spaces EKS Addon
+  # Note: The addon manages its own IAM roles and pod identity associations internally.
+  # For production use with WebUI, use ConfigurationValues to specify domain, certificates, etc.
+  # See: https://docs.aws.amazon.com/sagemaker/latest/dg/operator-install.html
+  SpacesAddon:
+    Type: AWS::EKS::Addon
+    Properties:
+      ClusterName:
+        Ref: EKSClusterName
+      AddonName: amazon-sagemaker-spaces
+      ResolveConflicts: OVERWRITE
+
+Outputs:
+  SpacesAddonName:
+    Description: Name of the Spaces addon
+    Value: amazon-sagemaker-spaces

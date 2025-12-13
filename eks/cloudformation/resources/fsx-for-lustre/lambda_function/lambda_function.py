@@ -394,12 +394,36 @@ parameters:
         subprocess.run(['kubectl', 'apply', '-f', storage_class_path], check=True)
         print("StorageClass created successfully")
         
-        # 2. Create PersistentVolume for existing FSx
-        print("Creating PersistentVolume for existing FSx file system...")
-        pv_content = f"""apiVersion: v1
+        # 2. Create PersistentVolume and PersistentVolumeClaim in each user namespace
+        # Note: PV is cluster-scoped but can only bind to ONE PVC. For multiple namespaces,
+        # we create separate PVs (with unique names) pointing to the same FSx filesystem.
+        user_namespaces = os.environ.get('USER_NAMESPACES', 'default').split(',')
+        user_namespaces = [ns.strip() for ns in user_namespaces if ns.strip()]
+        if not user_namespaces:
+            user_namespaces = ['default']
+        
+        created_pvcs = []
+        for namespace in user_namespaces:
+            ns_pv_name = f"fsx-pv-{namespace}"
+            ns_pvc_name = pvc_name
+            
+            print(f"\nCreating PV and PVC for namespace {namespace}...")
+            
+            # Ensure namespace exists
+            try:
+                subprocess.run(['kubectl', 'create', 'namespace', namespace, '--dry-run=client', '-o', 'yaml'], 
+                             check=True, capture_output=True)
+                ns_yaml = f'apiVersion: v1\nkind: Namespace\nmetadata:\n  name: {namespace}\n'
+                subprocess.run(['kubectl', 'apply', '-f', '-'], input=ns_yaml, 
+                             check=True, capture_output=True, text=True)
+            except subprocess.CalledProcessError:
+                pass  # Namespace may already exist
+            
+            # Create namespace-specific PV pointing to the same FSx filesystem
+            ns_pv_content = f"""apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: {pv_name}
+  name: {ns_pv_name}
 spec:
   capacity:
     storage: {storage_capacity}Gi
@@ -407,7 +431,10 @@ spec:
   accessModes:
     - ReadWriteMany
   persistentVolumeReclaimPolicy: Retain
-  storageClassName: {sc_name}
+  storageClassName: ""
+  claimRef:
+    namespace: {namespace}
+    name: {ns_pvc_name}
   csi:
     driver: fsx.csi.aws.com
     volumeHandle: {fsx_file_system_id}
@@ -415,35 +442,44 @@ spec:
       dnsname: {dns_name}
       mountname: {mount_name}
 """
-        
-        pv_path = '/tmp/pv.yaml'
-        with open(pv_path, 'w') as f:
-            f.write(pv_content)
             
-        subprocess.run(['kubectl', 'apply', '-f', pv_path], check=True)
-        print("PersistentVolume created successfully")
-        
-        # 3. Create PersistentVolumeClaim
-        print("Creating PersistentVolumeClaim for existing FSx file system...")
-        pvc_content = f"""apiVersion: v1
+            ns_pv_path = f'/tmp/pv-{namespace}.yaml'
+            with open(ns_pv_path, 'w') as f:
+                f.write(ns_pv_content)
+            
+            try:
+                subprocess.run(['kubectl', 'apply', '-f', ns_pv_path], check=True)
+                print(f"PersistentVolume {ns_pv_name} created successfully")
+            except subprocess.CalledProcessError as e:
+                print(f"Warning: Failed to create PV for {namespace}: {e}")
+                continue
+            
+            # Create PVC in the namespace
+            ns_pvc_content = f"""apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {pvc_name}
+  name: {ns_pvc_name}
+  namespace: {namespace}
 spec:
   accessModes:
     - ReadWriteMany
-  storageClassName: {sc_name}
+  storageClassName: ""
+  volumeName: {ns_pv_name}
   resources:
     requests:
       storage: {storage_capacity}Gi
 """
-        
-        pvc_path = '/tmp/pvc.yaml'
-        with open(pvc_path, 'w') as f:
-            f.write(pvc_content)
             
-        subprocess.run(['kubectl', 'apply', '-f', pvc_path], check=True)
-        print("PersistentVolumeClaim created successfully")
+            ns_pvc_path = f'/tmp/pvc-{namespace}.yaml'
+            with open(ns_pvc_path, 'w') as f:
+                f.write(ns_pvc_content)
+                
+            try:
+                subprocess.run(['kubectl', 'apply', '-f', ns_pvc_path], check=True)
+                print(f"PersistentVolumeClaim {ns_pvc_name} created successfully in {namespace}")
+                created_pvcs.append(f"{namespace}/{ns_pvc_name}")
+            except subprocess.CalledProcessError as e:
+                print(f"Warning: Failed to create PVC in {namespace}: {e}")
         
         # Verify resources were created
         print("\nVerifying created resources...")
@@ -455,35 +491,37 @@ spec:
             print(f"StorageClass status:\n{result.stdout}")
         except subprocess.CalledProcessError as e:
             print(f"Warning: Failed to verify StorageClass: {e}")
+        
+        # Check PVs and PVCs
+        for namespace in user_namespaces:
+            ns_pv_name = f"fsx-pv-{namespace}"
+            try:
+                result = subprocess.run(['kubectl', 'get', 'pv', ns_pv_name], 
+                                      check=True, capture_output=True, text=True)
+                print(f"PV {ns_pv_name} status:\n{result.stdout}")
+            except subprocess.CalledProcessError as e:
+                print(f"Warning: Failed to verify PV {ns_pv_name}: {e}")
             
-        # Check PV
-        try:
-            result = subprocess.run(['kubectl', 'get', 'pv', pv_name], 
-                                  check=True, capture_output=True, text=True)
-            print(f"PersistentVolume status:\n{result.stdout}")
-        except subprocess.CalledProcessError as e:
-            print(f"Warning: Failed to verify PersistentVolume: {e}")
-            
-        # Check PVC
-        try:
-            result = subprocess.run(['kubectl', 'get', 'pvc', pvc_name], 
-                                  check=True, capture_output=True, text=True)
-            print(f"PersistentVolumeClaim status:\n{result.stdout}")
-        except subprocess.CalledProcessError as e:
-            print(f"Warning: Failed to verify PersistentVolumeClaim: {e}")
+            try:
+                result = subprocess.run(['kubectl', 'get', 'pvc', pvc_name, '-n', namespace], 
+                                      check=True, capture_output=True, text=True)
+                print(f"PVC {pvc_name} in {namespace} status:\n{result.stdout}")
+            except subprocess.CalledProcessError as e:
+                print(f"Warning: Failed to verify PVC in {namespace}: {e}")
         
         # Update response data
         response_data.update({
             "StorageClassName": sc_name,
-            "PersistentVolumeName": pv_name, 
+            "PersistentVolumeName": pv_name,  # Keep for backward compatibility
             "PersistentVolumeClaimName": pvc_name,
-            "PVCNamespace": "default",
+            "PVCNamespace": ",".join(user_namespaces),
             "FSxDNSName": dns_name,
-            "FSxMountName": mount_name
+            "FSxMountName": mount_name,
+            "CreatedPVCs": ",".join(created_pvcs)
         })
         
         print("\nKubernetes resources for existing FSx file system created successfully!")
-        print(f"You can now use the PVC '{pvc_name}' in your applications to mount the FSx volume.")
+        print(f"PVCs created in namespaces: {', '.join(user_namespaces)}")
         
     except Exception as e:
         print(f"Error creating Kubernetes resources for existing FSx: {str(e)}")
@@ -685,22 +723,41 @@ def on_delete(event):
         pvc_name = "fsx-claim"
         pv_name = "fsx-pv"
         sc_name = "fsx-sc"
+        
+        # Get user namespaces for cleanup
+        user_namespaces = os.environ.get('USER_NAMESPACES', 'default').split(',')
+        user_namespaces = [ns.strip() for ns in user_namespaces if ns.strip()]
+        if not user_namespaces:
+            user_namespaces = ['default']
+        
+        # Delete PVCs and PVs from all namespaces
+        for namespace in user_namespaces:
+            ns_pv_name = f"fsx-pv-{namespace}"
             
-        try:
-            print(f"Deleting PersistentVolumeClaim {pvc_name}...")
-            subprocess.run(['kubectl', 'delete', 'pvc', pvc_name, '-n', 'default', '--ignore-not-found=true'], check=True)
-            print("Successfully deleted PVC")
-        except subprocess.CalledProcessError as e:
-            print(f"Warning: Failed to delete PVC: {e}")
+            try:
+                print(f"Deleting PersistentVolumeClaim {pvc_name} from namespace {namespace}...")
+                subprocess.run(['kubectl', 'delete', 'pvc', pvc_name, '-n', namespace, '--ignore-not-found=true'], check=True)
+                print(f"Successfully deleted PVC from {namespace}")
+            except subprocess.CalledProcessError as e:
+                print(f"Warning: Failed to delete PVC from {namespace}: {e}")
             
-        # Only delete PV for existing FSx (dynamic provisioning handles PV automatically)
+            # Delete namespace-specific PV for existing FSx
+            if 'FSX_FILE_SYSTEM_ID' in os.environ and os.environ['FSX_FILE_SYSTEM_ID'] != '':
+                try:
+                    print(f"Deleting PersistentVolume {ns_pv_name}...")
+                    subprocess.run(['kubectl', 'delete', 'pv', ns_pv_name, '--ignore-not-found=true'], check=True)
+                    print(f"Successfully deleted PV {ns_pv_name}")
+                except subprocess.CalledProcessError as e:
+                    print(f"Warning: Failed to delete PV {ns_pv_name}: {e}")
+        
+        # Also try to delete the legacy single PV (for backward compatibility)
         if 'FSX_FILE_SYSTEM_ID' in os.environ and os.environ['FSX_FILE_SYSTEM_ID'] != '':
             try:
-                print(f"Deleting PersistentVolume {pv_name}...")
+                print(f"Deleting legacy PersistentVolume {pv_name}...")
                 subprocess.run(['kubectl', 'delete', 'pv', pv_name, '--ignore-not-found=true'], check=True)
-                print("Successfully deleted PV")
+                print("Successfully deleted legacy PV")
             except subprocess.CalledProcessError as e:
-                print(f"Warning: Failed to delete PV: {e}")
+                print(f"Warning: Failed to delete legacy PV: {e}")
                 
         try:
             print(f"Deleting StorageClass {sc_name}...")
