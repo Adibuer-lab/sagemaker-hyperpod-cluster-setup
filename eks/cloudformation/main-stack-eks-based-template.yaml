@@ -455,6 +455,10 @@ Parameters:
     Type: String
     Default: sg-1234567890abcdef0
     Description: The Id of your cluster security group.
+  NfsSecurityGroupId:
+    Type: String
+    Default: ''
+    Description: SageMaker domain NFS security group ID for FSx Lustre access (optional)
   PrivateRouteTableIds:
     Type: String
     Default: rtb-1234567890abcdef0
@@ -2245,6 +2249,8 @@ Resources:
                 - SecurityGroupStack
                 - Outputs.SecurityGroupId
             - Ref: SecurityGroupIds
+        NfsSecurityGroupId:
+          Ref: NfsSecurityGroupId
         PerUnitStorageThroughput:
           Ref: PerUnitStorageThroughput
         DataCompressionType:
@@ -2945,3 +2951,9 @@ Outputs:
         - WorkspaceTemplatesStack
         - Outputs.CodeEditorGPUTemplateName
     Condition: EnableSpacesFeatureCondition
+  OutputFsxFileSystemId:
+    Value:
+      Fn::GetAtt:
+        - FsxStack
+        - Outputs.FsxFileSystemId
+    Condition: CreateFsxStackCondition

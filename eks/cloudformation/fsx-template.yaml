@@ -44,6 +44,10 @@ Parameters:
   SecurityGroupIds:
     Type: String
     Description: ID of the security group to use
+  NfsSecurityGroupId:
+    Type: String
+    Default: ''
+    Description: SageMaker domain NFS security group ID for FSx Lustre access (optional)
   PerUnitStorageThroughput:
     Type: Number
     Default: 250
@@ -92,6 +96,11 @@ Conditions:
   CreateNewFsxCondition:
     Fn::Not:
       - Condition: UseFsxFileSystemIdCondition
+  HasNfsSecurityGroupId:
+    Fn::Not:
+      - Fn::Equals:
+          - Ref: NfsSecurityGroupId
+          - ''
 Resources:
   FsxLambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -265,7 +274,11 @@ Resources:
         PerUnitStorageThroughput:
           Ref: PerUnitStorageThroughput
       SecurityGroupIds:
-        - Ref: SecurityGroupIds
+        Fn::If:
+          - HasNfsSecurityGroupId
+          - - !Ref SecurityGroupIds
+            - !Ref NfsSecurityGroupId
+          - - !Ref SecurityGroupIds
       StorageCapacity:
         Ref: StorageCapacity
       StorageType: SSD
@@ -495,3 +508,10 @@ Outputs:
   FsxDeploymentComplete:
     Description: Indicates fsx deployment is complete
     Value: FsxDeploymentComplete
+  FsxFileSystemId:
+    Description: FSx for Lustre File System ID
+    Value:
+      Fn::If:
+        - UseFsxFileSystemIdCondition
+        - !Ref FsxFileSystemId
+        - !Ref FSxLustreFileSystem
