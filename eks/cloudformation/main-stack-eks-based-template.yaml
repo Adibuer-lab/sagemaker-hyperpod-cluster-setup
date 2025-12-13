@@ -1916,7 +1916,7 @@ Resources:
       FunctionName:
         Fn::Sub: ${ResourceNamePrefix}-karpenter-setup
       Runtime: python3.12
-      Handler: index.handler
+      Handler: lambda_function.handler
       Timeout: 300
       MemorySize: 256
       Role:
@@ -1941,170 +1941,12 @@ Resources:
           NODEPOOL_NAME:
             Fn::Sub: ${ResourceNamePrefix}-nodepool
       Code:
-        ZipFile: |
-          import boto3
-          import cfnresponse
-          import json
-          import base64
-          import os
-          import urllib.request
-          import ssl
-          
-          def get_eks_token(cluster_name):
-              session = boto3.Session(region_name=os.environ['AWS_REGION'])
-              sts = session.client('sts')
-              def retrieve_k8s_aws_id(params, context, **kwargs):
-                  if 'x-k8s-aws-id' in params:
-                      context['x-k8s-aws-id'] = params.pop('x-k8s-aws-id')
-              def inject_k8s_aws_id_header(request, **kwargs):
-                  if 'x-k8s-aws-id' in request.context:
-                      request.headers['x-k8s-aws-id'] = request.context['x-k8s-aws-id']
-              sts.meta.events.register('provide-client-params.sts.GetCallerIdentity', retrieve_k8s_aws_id)
-              sts.meta.events.register('before-sign.sts.GetCallerIdentity', inject_k8s_aws_id_header)
-              url = sts.generate_presigned_url('get_caller_identity', Params={'x-k8s-aws-id': cluster_name}, ExpiresIn=60, HttpMethod='GET')
-              return 'k8s-aws-v1.' + base64.urlsafe_b64encode(url.encode()).decode().rstrip('=')
-          
-          def k8s_request(endpoint, ca_data, token, method, path, body=None):
-              url = f"{endpoint}{path}"
-              headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/yaml'}
-              data = body.encode() if body else None
-              ctx = ssl.create_default_context()
-              ctx.load_verify_locations(cadata=base64.b64decode(ca_data).decode())
-              req = urllib.request.Request(url, data=data, headers=headers, method=method)
-              try:
-                  with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
-                      return resp.status, resp.read().decode()
-              except urllib.error.HTTPError as e:
-                  return e.code, e.read().decode()
-          
-          def handler(event, context):
-              if event['RequestType'] == 'Delete':
-                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
-                  return
-              try:
-                  import time
-                  cluster_name = os.environ['EKS_CLUSTER_NAME']
-                  hyperpod_cluster_name = os.environ['HYPERPOD_CLUSTER_NAME']
-                  nodeclass_name = os.environ['NODECLASS_NAME']
-                  nodepool_prefix = os.environ['NODEPOOL_NAME']
-                  
-                  sagemaker = boto3.client('sagemaker')
-                  hyperpod_cluster = sagemaker.describe_cluster(ClusterName=hyperpod_cluster_name)
-                  instance_groups = [ig['InstanceGroupName'] for ig in hyperpod_cluster['InstanceGroups']]
-                  print(f"Found {len(instance_groups)} instance groups: {instance_groups}")
-                  
-                  eks = boto3.client('eks')
-                  cluster = eks.describe_cluster(name=cluster_name)['cluster']
-                  endpoint, ca_data = cluster['endpoint'], cluster['certificateAuthority']['data']
-                  token = get_eks_token(cluster_name)
-                  
-                  # Create HyperpodNodeClass
-                  nodeclass_yaml = f"apiVersion: karpenter.sagemaker.amazonaws.com/v1\nkind: HyperpodNodeClass\nmetadata:\n  name: {nodeclass_name}\nspec:\n  instanceGroups:\n"
-                  for ig in instance_groups:
-                      nodeclass_yaml += f"    - {ig.strip()}\n"
-                  print(f"Creating NodeClass:\n{nodeclass_yaml}")
-                  
-                  for attempt in range(5):
-                      status, resp = k8s_request(endpoint, ca_data, token, 'POST', '/apis/karpenter.sagemaker.amazonaws.com/v1/hyperpodnodeclasses', nodeclass_yaml)
-                      if status in [200, 201, 409]: break
-                      if status == 401 and attempt < 4:
-                          print(f"Got 401, waiting for AccessEntry propagation (attempt {attempt + 1}/5)...")
-                          time.sleep(10)
-                          token = get_eks_token(cluster_name)
-                          continue
-                      raise Exception(f"Failed to create NodeClass: {status} {resp}")
-                  print(f"NodeClass response: {status}")
-                  
-                  # Wait for HyperpodNodeClass status and build node-role to instance-types mapping
-                  role_to_types = {}
-                  default_types = set()
-                  for attempt in range(12):
-                      time.sleep(5)
-                      status, resp = k8s_request(endpoint, ca_data, token, 'GET', f'/apis/karpenter.sagemaker.amazonaws.com/v1/hyperpodnodeclasses/{nodeclass_name}', None)
-                      if status == 200:
-                          nc_status = json.loads(resp).get('status', {})
-                          for ig in nc_status.get('instanceGroups', []):
-                              types = ig.get('instanceTypes', [])
-                              role = next((l.get('value') for l in (ig.get('desiredLabels') or []) if l.get('key') == 'node-role'), None)
-                              if role:
-                                  role_to_types.setdefault(role, set()).update(types)
-                              else:
-                                  default_types.update(types)
-                          if role_to_types:
-                              print(f"Found role->types mapping: { {r: list(t) for r, t in role_to_types.items()} }")
-                              break
-                      print(f"Waiting for NodeClass status (attempt {attempt + 1}/12)...")
-                  
-                  # Create mutually exclusive NodePools with explicit instance-type constraints (Karpenter best practice)
-                  created_pools = []
-                  for role, types in role_to_types.items():
-                      pool_name = f"{nodepool_prefix}-{role}"
-                      types_yaml = ', '.join(f'"{t}"' for t in sorted(types))
-                      nodepool_yaml = f"""apiVersion: karpenter.sh/v1
-          kind: NodePool
-          metadata:
-            name: {pool_name}
-          spec:
-            template:
-              spec:
-                nodeClassRef:
-                  group: karpenter.sagemaker.amazonaws.com
-                  kind: HyperpodNodeClass
-                  name: {nodeclass_name}
-                expireAfter: Never
-                requirements:
-                  - key: node.kubernetes.io/instance-type
-                    operator: In
-                    values: [{types_yaml}]
-                  - key: node-role
-                    operator: In
-                    values: ["{role}"]
-            disruption:
-              consolidationPolicy: WhenEmptyOrUnderutilized
-              consolidateAfter: 30m
-          """
-                      print(f"Creating NodePool {pool_name} with types={list(types)}")
-                      status, resp = k8s_request(endpoint, ca_data, token, 'POST', '/apis/karpenter.sh/v1/nodepools', nodepool_yaml)
-                      if status not in [200, 201, 409]:
-                          raise Exception(f"Failed to create NodePool {pool_name}: {status} {resp}")
-                      created_pools.append(pool_name)
-                  
-                  # Create default NodePool for instance groups without node-role (worker nodes)
-                  default_pool_name = f"{nodepool_prefix}-default"
-                  types_yaml = ', '.join(f'"{t}"' for t in sorted(default_types)) if default_types else ''
-                  type_req = f'operator: In\n                    values: [{types_yaml}]' if default_types else 'operator: Exists'
-                  default_nodepool_yaml = f"""apiVersion: karpenter.sh/v1
-          kind: NodePool
-          metadata:
-            name: {default_pool_name}
-          spec:
-            weight: 1
-            template:
-              spec:
-                nodeClassRef:
-                  group: karpenter.sagemaker.amazonaws.com
-                  kind: HyperpodNodeClass
-                  name: {nodeclass_name}
-                expireAfter: Never
-                requirements:
-                  - key: node.kubernetes.io/instance-type
-                    {type_req}
-                  - key: node-role
-                    operator: DoesNotExist
-            disruption:
-              consolidationPolicy: WhenEmptyOrUnderutilized
-              consolidateAfter: 30m
-          """
-                  print(f"Creating default NodePool with types={list(default_types)}")
-                  status, resp = k8s_request(endpoint, ca_data, token, 'POST', '/apis/karpenter.sh/v1/nodepools', default_nodepool_yaml)
-                  if status not in [200, 201, 409]:
-                      raise Exception(f"Failed to create default NodePool: {status} {resp}")
-                  created_pools.append(default_pool_name)
-                  
-                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {'NodeClassName': nodeclass_name, 'NodePools': ','.join(created_pools)})
-              except Exception as e:
-                  print(f"Error: {str(e)}")
-                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+        S3Bucket:
+          Fn::If:
+            - CustomBucketCondition
+            - Ref: CustomBucketName
+            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
+        S3Key: resources/artifacts/karpenter-setup-lambda-function.zip
 
   KarpenterSetup:
     Type: Custom::KarpenterSetup
