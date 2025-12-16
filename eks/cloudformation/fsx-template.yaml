@@ -467,7 +467,7 @@ Resources:
           - FsxCustomResourceRole
           - Arn
       Runtime: python3.12
-      Timeout: 600
+      Timeout: 900
     DependsOn:
       - FsxCustomResourceAccessEntry
     Metadata:

@@ -1,4 +1,5 @@
 import boto3
+import json
 import os
 import re
 import subprocess
@@ -9,6 +10,21 @@ from botocore.exceptions import ClientError
 import yaml
 
 FSX_BOOTSTRAP_IMAGE = os.environ.get("FSX_BOOTSTRAP_IMAGE", "public.ecr.aws/docker/library/busybox:1.36")
+KUBECTL_REQUEST_TIMEOUT = os.environ.get("KUBECTL_REQUEST_TIMEOUT", "20s")
+
+
+def _kubectl(args, *, input_text=None, check=True, timeout_seconds=60):
+    cmd = ["kubectl"] + list(args)
+    if "--request-timeout" not in cmd:
+        cmd.append(f"--request-timeout={KUBECTL_REQUEST_TIMEOUT}")
+    return subprocess.run(
+        cmd,
+        input=input_text,
+        text=True,
+        capture_output=True,
+        check=check,
+        timeout=timeout_seconds,
+    )
 
 
 def _sanitize_k8s_name(value: str, max_length: int = 63) -> str:
@@ -22,19 +38,17 @@ def _sanitize_k8s_name(value: str, max_length: int = 63) -> str:
     return s[:max_length].rstrip("-")
 
 
-def _wait_pvc_bound(namespace: str, pvc_name: str, timeout_seconds: int = 600) -> None:
+def _wait_pvc_bound(namespace: str, pvc_name: str, timeout_seconds: int = 300) -> None:
     start = time.time()
     while time.time() - start < timeout_seconds:
         try:
-            phase = subprocess.run(
-                ["kubectl", "get", "pvc", pvc_name, "-n", namespace, "-ojsonpath={.status.phase}"],
-                check=True,
-                capture_output=True,
-                text=True,
+            phase = _kubectl(
+                ["get", "pvc", pvc_name, "-n", namespace, "-ojsonpath={.status.phase}"],
+                timeout_seconds=20,
             ).stdout.strip()
             if phase == "Bound":
                 return
-        except subprocess.CalledProcessError:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             pass
         time.sleep(5)
     raise TimeoutError(f"Timed out waiting for PVC {namespace}/{pvc_name} to reach Bound")
@@ -60,7 +74,7 @@ def _bootstrap_fsx_writable_subdir(fsx_file_system_id: str) -> str:
     target_path = f"/{target_subdir}"
 
     print(f"Bootstrapping writable FSx directory {target_path} using PVC {namespace}/{pvc_name}...")
-    _wait_pvc_bound(namespace, pvc_name, timeout_seconds=600)
+    _wait_pvc_bound(namespace, pvc_name, timeout_seconds=300)
 
     suffix = uuid.uuid4().hex[:8]
     pod_name = _sanitize_k8s_name(f"fsx-bootstrap-{fs_id}-{suffix}", max_length=63)
@@ -75,6 +89,8 @@ spec:
   containers:
     - name: bootstrap
       image: {FSX_BOOTSTRAP_IMAGE}
+      securityContext:
+        runAsUser: 0
       command: ["sh", "-lc", "set -eux; mkdir -p /fsx/{target_subdir}; chmod 1777 /fsx/{target_subdir}; ls -ld /fsx /fsx/{target_subdir}"]
       volumeMounts:
         - name: fsx
@@ -86,35 +102,69 @@ spec:
 """
 
     # Ensure we don't leak pods if the custom resource is retried.
-    subprocess.run(["kubectl", "delete", "pod", pod_name, "-n", namespace, "--ignore-not-found=true"], check=False)
-    subprocess.run(["kubectl", "apply", "-f", "-"], input=manifest, check=True, text=True)
+    try:
+        _kubectl(["delete", "pod", pod_name, "-n", namespace, "--ignore-not-found=true"], check=False, timeout_seconds=30)
+    except Exception:
+        pass
+    _kubectl(["apply", "-f", "-"], input_text=manifest, timeout_seconds=120)
 
     # Wait for completion.
     start = time.time()
-    while time.time() - start < 600:
-        phase = subprocess.run(
-            ["kubectl", "get", "pod", pod_name, "-n", namespace, "-ojsonpath={.status.phase}"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        if phase in {"Succeeded", "Failed"}:
-            break
-        time.sleep(5)
+    phase = ""
+    bad_reason_first_seen = {}
+    fatal_wait_reasons = {
+        "ErrImagePull",
+        "ImagePullBackOff",
+        "CreateContainerConfigError",
+        "CreateContainerError",
+        "RunContainerError",
+    }
 
-    logs = subprocess.run(
-        ["kubectl", "logs", pod_name, "-n", namespace],
-        check=False,
-        capture_output=True,
-        text=True,
-    ).stdout
-    print(f"FSx bootstrap pod logs ({namespace}/{pod_name}):\n{logs}")
+    try:
+        while time.time() - start < 300:
+            try:
+                pod_raw = _kubectl(["get", "pod", pod_name, "-n", namespace, "-o", "json"], timeout_seconds=20).stdout
+                pod_obj = json.loads(pod_raw)
+                status = pod_obj.get("status") or {}
+                phase = (status.get("phase") or "").strip()
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError):
+                time.sleep(5)
+                continue
 
-    if phase != "Succeeded":
-        raise RuntimeError(f"FSx bootstrap pod {namespace}/{pod_name} did not succeed (phase={phase})")
+            if phase in {"Succeeded", "Failed"}:
+                break
 
-    subprocess.run(["kubectl", "delete", "pod", pod_name, "-n", namespace, "--ignore-not-found=true"], check=False)
-    return target_path
+            # Fail fast if we're stuck on an image pull or similar fatal wait reason.
+            for cs in status.get("containerStatuses") or []:
+                waiting = (cs.get("state") or {}).get("waiting") or {}
+                reason = (waiting.get("reason") or "").strip()
+                if reason in fatal_wait_reasons:
+                    if reason not in bad_reason_first_seen:
+                        bad_reason_first_seen[reason] = time.time()
+                        msg = (waiting.get("message") or "").strip()
+                        print(f"Bootstrap pod waiting reason={reason}: {msg}")
+                    elif time.time() - bad_reason_first_seen[reason] > 60:
+                        msg = (waiting.get("message") or "").strip()
+                        raise RuntimeError(f"Bootstrap pod stuck in {reason}: {msg}")
+
+            time.sleep(5)
+
+        logs = _kubectl(["logs", pod_name, "-n", namespace], check=False, timeout_seconds=60).stdout
+        if logs:
+            print(f"FSx bootstrap pod logs ({namespace}/{pod_name}):\n{logs}")
+
+        if phase != "Succeeded":
+            desc = _kubectl(["describe", "pod", pod_name, "-n", namespace], check=False, timeout_seconds=60).stdout
+            if desc:
+                print(f"FSx bootstrap pod describe ({namespace}/{pod_name}):\n{desc}")
+            raise RuntimeError(f"FSx bootstrap pod {namespace}/{pod_name} did not succeed (phase={phase or 'Unknown'})")
+
+        return target_path
+    finally:
+        try:
+            _kubectl(["delete", "pod", pod_name, "-n", namespace, "--ignore-not-found=true"], check=False, timeout_seconds=30)
+        except Exception:
+            pass
 
 
 def lambda_handler(event, context):
@@ -350,13 +400,12 @@ mountOptions:
             
         # Apply the StorageClass using kubectl
         print("Applying StorageClass to the cluster...")
-        subprocess.run(['kubectl', 'apply', '-f', storage_class_path], check=True)
+        _kubectl(["apply", "-f", storage_class_path], timeout_seconds=120)
         
         # Verify StorageClass creation
         print("Verifying StorageClass creation...")
-        result = subprocess.run(['kubectl', 'get', 'storageclass', 'fsx-sc', '-o', 'yaml'], 
-                              check=True, capture_output=True, text=True)
-        print(f"StorageClass verification:\n{result.stdout}")
+        result = _kubectl(["get", "storageclass", "fsx-sc", "-o", "yaml"], timeout_seconds=60).stdout
+        print(f"StorageClass verification:\n{result}")
         
         # Add StorageClass name to response data
         response_data["StorageClassName"] = "fsx-sc"
@@ -388,7 +437,7 @@ spec:
             
         # Apply the PVC using kubectl
         print("Applying PersistentVolumeClaim to the cluster...")
-        subprocess.run(['kubectl', 'apply', '-f', pvc_path], check=True)
+        _kubectl(["apply", "-f", pvc_path], timeout_seconds=120)
         
         # Add PVC information to response data
         response_data["PersistentVolumeClaimName"] = "fsx-claim"
@@ -398,18 +447,19 @@ spec:
         
         # View the status of the PVC
         print("\nChecking PVC status:")
-        pvc_status = subprocess.run(['kubectl', 'describe', 'pvc', 'fsx-claim'], 
-                                  check=True, capture_output=True, text=True)
-        print(pvc_status.stdout)
+        pvc_status = _kubectl(["describe", "pvc", "fsx-claim"], timeout_seconds=60).stdout
+        print(pvc_status)
         
         # Check if the PVC is in Pending or Bound state
         print("\nChecking PVC phase:")
         try:
-            pvc_phase = subprocess.run(['kubectl', 'get', 'pvc', 'fsx-claim', '-n', 'default', '-ojsonpath={.status.phase}'],
-                                     check=True, capture_output=True, text=True)
-            print(f"PVC Status: {pvc_phase.stdout}")
-            response_data["PVCStatus"] = pvc_phase.stdout
-        except subprocess.CalledProcessError as e:
+            pvc_phase = _kubectl(
+                ["get", "pvc", "fsx-claim", "-n", "default", "-ojsonpath={.status.phase}"],
+                timeout_seconds=60,
+            ).stdout
+            print(f"PVC Status: {pvc_phase}")
+            response_data["PVCStatus"] = pvc_phase
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             print(f"Warning: Failed to get PVC phase: {e}")
             response_data["PVCStatus"] = "Unknown"
         
@@ -417,16 +467,20 @@ spec:
         if response_data.get("PVCStatus") == "Bound":
             try:
                 # Get the PV name first
-                pv_name = subprocess.run(['kubectl', 'get', 'pvc', 'fsx-claim', '-n', 'default', '-ojsonpath={.spec.volumeName}'],
-                                       check=True, capture_output=True, text=True)
+                pv_name = _kubectl(
+                    ["get", "pvc", "fsx-claim", "-n", "default", "-ojsonpath={.spec.volumeName}"],
+                    timeout_seconds=60,
+                ).stdout.strip()
                 
                 # Get the FSx volume ID
-                volume_id = subprocess.run(['kubectl', 'get', 'pv', pv_name.stdout, '-ojsonpath={.spec.csi.volumeHandle}'],
-                                        check=True, capture_output=True, text=True)
+                volume_id = _kubectl(
+                    ["get", "pv", pv_name, "-ojsonpath={.spec.csi.volumeHandle}"],
+                    timeout_seconds=60,
+                ).stdout.strip()
                 
-                print(f"\nFSx Volume ID: {volume_id.stdout}")
-                response_data["FSxVolumeId"] = volume_id.stdout
-            except subprocess.CalledProcessError as e:
+                print(f"\nFSx Volume ID: {volume_id}")
+                response_data["FSxVolumeId"] = volume_id
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
                 print(f"Note: FSx volume ID not yet available. Provisioning may still be in progress: {e}")
                 response_data["FSxVolumeId"] = "Provisioning"
         else:
@@ -503,7 +557,7 @@ parameters:
         with open(storage_class_path, 'w') as f:
             f.write(storage_class_content)
             
-        subprocess.run(['kubectl', 'apply', '-f', storage_class_path], check=True)
+        _kubectl(["apply", "-f", storage_class_path], timeout_seconds=120)
         print("StorageClass created successfully")
         
         # 2. Create PersistentVolume and PersistentVolumeClaim in each user namespace
@@ -523,12 +577,10 @@ parameters:
             
             # Ensure namespace exists
             try:
-                subprocess.run(['kubectl', 'create', 'namespace', namespace, '--dry-run=client', '-o', 'yaml'], 
-                             check=True, capture_output=True)
+                _kubectl(["create", "namespace", namespace, "--dry-run=client", "-o", "yaml"], timeout_seconds=60)
                 ns_yaml = f'apiVersion: v1\nkind: Namespace\nmetadata:\n  name: {namespace}\n'
-                subprocess.run(['kubectl', 'apply', '-f', '-'], input=ns_yaml, 
-                             check=True, capture_output=True, text=True)
-            except subprocess.CalledProcessError:
+                _kubectl(["apply", "-f", "-"], input_text=ns_yaml, timeout_seconds=60)
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 pass  # Namespace may already exist
             
             # Create namespace-specific PV pointing to the same FSx filesystem
@@ -560,7 +612,7 @@ spec:
                 f.write(ns_pv_content)
             
             try:
-                subprocess.run(['kubectl', 'apply', '-f', ns_pv_path], check=True)
+                _kubectl(["apply", "-f", ns_pv_path], timeout_seconds=120)
                 print(f"PersistentVolume {ns_pv_name} created successfully")
             except subprocess.CalledProcessError as e:
                 print(f"Warning: Failed to create PV for {namespace}: {e}")
@@ -587,7 +639,7 @@ spec:
                 f.write(ns_pvc_content)
                 
             try:
-                subprocess.run(['kubectl', 'apply', '-f', ns_pvc_path], check=True)
+                _kubectl(["apply", "-f", ns_pvc_path], timeout_seconds=120)
                 print(f"PersistentVolumeClaim {ns_pvc_name} created successfully in {namespace}")
                 created_pvcs.append(f"{namespace}/{ns_pvc_name}")
             except subprocess.CalledProcessError as e:
@@ -598,27 +650,24 @@ spec:
         
         # Check StorageClass
         try:
-            result = subprocess.run(['kubectl', 'get', 'storageclass', sc_name], 
-                                  check=True, capture_output=True, text=True)
-            print(f"StorageClass status:\n{result.stdout}")
-        except subprocess.CalledProcessError as e:
+            result = _kubectl(["get", "storageclass", sc_name], timeout_seconds=60).stdout
+            print(f"StorageClass status:\n{result}")
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             print(f"Warning: Failed to verify StorageClass: {e}")
         
         # Check PVs and PVCs
         for namespace in user_namespaces:
             ns_pv_name = f"fsx-pv-{namespace}"
             try:
-                result = subprocess.run(['kubectl', 'get', 'pv', ns_pv_name], 
-                                      check=True, capture_output=True, text=True)
-                print(f"PV {ns_pv_name} status:\n{result.stdout}")
-            except subprocess.CalledProcessError as e:
+                result = _kubectl(["get", "pv", ns_pv_name], timeout_seconds=60).stdout
+                print(f"PV {ns_pv_name} status:\n{result}")
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
                 print(f"Warning: Failed to verify PV {ns_pv_name}: {e}")
             
             try:
-                result = subprocess.run(['kubectl', 'get', 'pvc', pvc_name, '-n', namespace], 
-                                      check=True, capture_output=True, text=True)
-                print(f"PVC {pvc_name} in {namespace} status:\n{result.stdout}")
-            except subprocess.CalledProcessError as e:
+                result = _kubectl(["get", "pvc", pvc_name, "-n", namespace], timeout_seconds=60).stdout
+                print(f"PVC {pvc_name} in {namespace} status:\n{result}")
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
                 print(f"Warning: Failed to verify PVC in {namespace}: {e}")
         
         # Update response data
@@ -692,18 +741,22 @@ def on_create(event):
 
             # Verify proper annotation of the service account with the IAM role ARN
             try:
-                result = subprocess.run(['kubectl', 'get', 'sa', 'fsx-csi-controller-sa', '-n', 'kube-system', '-oyaml'], 
-                                    check=True, capture_output=True, text=True)
-                print(f"Service account verification:\n{result.stdout}")
-            except subprocess.CalledProcessError as e:
+                result = _kubectl(
+                    ["get", "sa", "fsx-csi-controller-sa", "-n", "kube-system", "-oyaml"],
+                    timeout_seconds=60,
+                ).stdout
+                print(f"Service account verification:\n{result}")
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
                 print(f"Warning: Failed to verify service account: {e}")
                 
             # Verify installation of the FSx for Lustre CSI driver
             try:
-                result = subprocess.run(['kubectl', 'get', 'pods', '-n', 'kube-system', '-l', 'app.kubernetes.io/name=aws-fsx-csi-driver'], 
-                                    check=True, capture_output=True, text=True)
-                print(f"FSx for Lustre CSI driver verification:\n{result.stdout}")
-            except subprocess.CalledProcessError as e:
+                result = _kubectl(
+                    ["get", "pods", "-n", "kube-system", "-l", "app.kubernetes.io/name=aws-fsx-csi-driver"],
+                    timeout_seconds=60,
+                ).stdout
+                print(f"FSx for Lustre CSI driver verification:\n{result}")
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
                 print(f"Warning: Failed to verify FSx for Lustre CSI driver installation: {e}")
         elif resourceId == 'FsxCustomResourceStep2':
             # Choose between dynamic provisioning or existing FSx
@@ -782,18 +835,22 @@ def on_update(event):
 
         # Verify proper annotation of the service account with the IAM role ARN
         try:
-            result = subprocess.run(['kubectl', 'get', 'sa', 'fsx-csi-controller-sa', '-n', 'kube-system', '-oyaml'], 
-                                   check=True, capture_output=True, text=True)
-            print(f"Service account verification:\n{result.stdout}")
-        except subprocess.CalledProcessError as e:
+            result = _kubectl(
+                ["get", "sa", "fsx-csi-controller-sa", "-n", "kube-system", "-oyaml"],
+                timeout_seconds=60,
+            ).stdout
+            print(f"Service account verification:\n{result}")
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             print(f"Warning: Failed to verify service account: {e}")
             
         # Verify installation of the FSx for Lustre CSI driver
         try:
-            result = subprocess.run(['kubectl', 'get', 'pods', '-n', 'kube-system', '-l', 'app.kubernetes.io/name=aws-fsx-csi-driver'], 
-                                   check=True, capture_output=True, text=True)
-            print(f"FSx for Lustre CSI driver verification:\n{result.stdout}")
-        except subprocess.CalledProcessError as e:
+            result = _kubectl(
+                ["get", "pods", "-n", "kube-system", "-l", "app.kubernetes.io/name=aws-fsx-csi-driver"],
+                timeout_seconds=60,
+            ).stdout
+            print(f"FSx for Lustre CSI driver verification:\n{result}")
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             print(f"Warning: Failed to verify FSx for Lustre CSI driver installation: {e}")
             
         # Choose between dynamic provisioning or existing FSx for updates
@@ -855,34 +912,37 @@ def on_delete(event):
             
             try:
                 print(f"Deleting PersistentVolumeClaim {pvc_name} from namespace {namespace}...")
-                subprocess.run(['kubectl', 'delete', 'pvc', pvc_name, '-n', namespace, '--ignore-not-found=true'], check=True)
+                _kubectl(
+                    ["delete", "pvc", pvc_name, "-n", namespace, "--ignore-not-found=true"],
+                    timeout_seconds=60,
+                )
                 print(f"Successfully deleted PVC from {namespace}")
-            except subprocess.CalledProcessError as e:
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
                 print(f"Warning: Failed to delete PVC from {namespace}: {e}")
             
             # Delete namespace-specific PV for existing FSx
             if 'FSX_FILE_SYSTEM_ID' in os.environ and os.environ['FSX_FILE_SYSTEM_ID'] != '':
                 try:
                     print(f"Deleting PersistentVolume {ns_pv_name}...")
-                    subprocess.run(['kubectl', 'delete', 'pv', ns_pv_name, '--ignore-not-found=true'], check=True)
+                    _kubectl(["delete", "pv", ns_pv_name, "--ignore-not-found=true"], timeout_seconds=60)
                     print(f"Successfully deleted PV {ns_pv_name}")
-                except subprocess.CalledProcessError as e:
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
                     print(f"Warning: Failed to delete PV {ns_pv_name}: {e}")
         
         # Also try to delete the legacy single PV (for backward compatibility)
         if 'FSX_FILE_SYSTEM_ID' in os.environ and os.environ['FSX_FILE_SYSTEM_ID'] != '':
             try:
                 print(f"Deleting legacy PersistentVolume {pv_name}...")
-                subprocess.run(['kubectl', 'delete', 'pv', pv_name, '--ignore-not-found=true'], check=True)
+                _kubectl(["delete", "pv", pv_name, "--ignore-not-found=true"], timeout_seconds=60)
                 print("Successfully deleted legacy PV")
-            except subprocess.CalledProcessError as e:
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
                 print(f"Warning: Failed to delete legacy PV: {e}")
                 
         try:
             print(f"Deleting StorageClass {sc_name}...")
-            subprocess.run(['kubectl', 'delete', 'storageclass', sc_name, '--ignore-not-found=true'], check=True)
+            _kubectl(["delete", "storageclass", sc_name, "--ignore-not-found=true"], timeout_seconds=60)
             print("Successfully deleted StorageClass")
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             print(f"Warning: Failed to delete StorageClass: {e}")
             
         # Delete the IAM service account
