@@ -1,9 +1,121 @@
 import boto3
 import os
+import re
 import subprocess
+import time
+import uuid
 import cfnresponse
 from botocore.exceptions import ClientError
 import yaml
+
+FSX_BOOTSTRAP_IMAGE = os.environ.get("FSX_BOOTSTRAP_IMAGE", "public.ecr.aws/docker/library/busybox:1.36")
+
+
+def _sanitize_k8s_name(value: str, max_length: int = 63) -> str:
+    """
+    Kubernetes object names must be DNS-1123 labels: lower-case alphanumerics and '-'.
+    """
+    s = re.sub(r"[^a-z0-9-]+", "-", str(value or "").lower()).strip("-")
+    s = re.sub(r"-{2,}", "-", s)
+    if not s:
+        s = "fsx-bootstrap"
+    return s[:max_length].rstrip("-")
+
+
+def _wait_pvc_bound(namespace: str, pvc_name: str, timeout_seconds: int = 600) -> None:
+    start = time.time()
+    while time.time() - start < timeout_seconds:
+        try:
+            phase = subprocess.run(
+                ["kubectl", "get", "pvc", pvc_name, "-n", namespace, "-ojsonpath={.status.phase}"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            if phase == "Bound":
+                return
+        except subprocess.CalledProcessError:
+            pass
+        time.sleep(5)
+    raise TimeoutError(f"Timed out waiting for PVC {namespace}/{pvc_name} to reach Bound")
+
+
+def _bootstrap_fsx_writable_subdir(fsx_file_system_id: str) -> str:
+    """
+    Create a stable, writable directory in the FSx root so SageMaker Spaces can mount it.
+
+    Returns the file system path (e.g., '/fs-0123...') that should be used as FileSystemPath.
+    """
+    fs_id = (fsx_file_system_id or "").strip()
+    if not fs_id:
+        return ""
+
+    user_namespaces = [ns.strip() for ns in os.environ.get("USER_NAMESPACES", "default").split(",") if ns.strip()]
+    if not user_namespaces:
+        user_namespaces = ["default"]
+
+    namespace = user_namespaces[0]
+    pvc_name = "fsx-claim"
+    target_subdir = fs_id
+    target_path = f"/{target_subdir}"
+
+    print(f"Bootstrapping writable FSx directory {target_path} using PVC {namespace}/{pvc_name}...")
+    _wait_pvc_bound(namespace, pvc_name, timeout_seconds=600)
+
+    suffix = uuid.uuid4().hex[:8]
+    pod_name = _sanitize_k8s_name(f"fsx-bootstrap-{fs_id}-{suffix}", max_length=63)
+
+    manifest = f"""apiVersion: v1
+kind: Pod
+metadata:
+  name: {pod_name}
+  namespace: {namespace}
+spec:
+  restartPolicy: Never
+  containers:
+    - name: bootstrap
+      image: {FSX_BOOTSTRAP_IMAGE}
+      command: ["sh", "-lc", "set -eux; mkdir -p /fsx/{target_subdir}; chmod 1777 /fsx/{target_subdir}; ls -ld /fsx /fsx/{target_subdir}"]
+      volumeMounts:
+        - name: fsx
+          mountPath: /fsx
+  volumes:
+    - name: fsx
+      persistentVolumeClaim:
+        claimName: {pvc_name}
+"""
+
+    # Ensure we don't leak pods if the custom resource is retried.
+    subprocess.run(["kubectl", "delete", "pod", pod_name, "-n", namespace, "--ignore-not-found=true"], check=False)
+    subprocess.run(["kubectl", "apply", "-f", "-"], input=manifest, check=True, text=True)
+
+    # Wait for completion.
+    start = time.time()
+    while time.time() - start < 600:
+        phase = subprocess.run(
+            ["kubectl", "get", "pod", pod_name, "-n", namespace, "-ojsonpath={.status.phase}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        if phase in {"Succeeded", "Failed"}:
+            break
+        time.sleep(5)
+
+    logs = subprocess.run(
+        ["kubectl", "logs", pod_name, "-n", namespace],
+        check=False,
+        capture_output=True,
+        text=True,
+    ).stdout
+    print(f"FSx bootstrap pod logs ({namespace}/{pod_name}):\n{logs}")
+
+    if phase != "Succeeded":
+        raise RuntimeError(f"FSx bootstrap pod {namespace}/{pod_name} did not succeed (phase={phase})")
+
+    subprocess.run(["kubectl", "delete", "pod", pod_name, "-n", namespace, "--ignore-not-found=true"], check=False)
+    return target_path
+
 
 def lambda_handler(event, context):
     """
@@ -604,6 +716,13 @@ def on_create(event):
                 
                 # Create Kubernetes resources for existing FSx file system
                 create_existing_fsx_resources(response_data)
+
+                # Ensure a writable directory exists for SageMaker Spaces (non-root users).
+                try:
+                    response_data["SageMakerFileSystemPath"] = _bootstrap_fsx_writable_subdir(os.environ["FSX_FILE_SYSTEM_ID"])
+                except Exception as e:
+                    # Fail the custom resource so the stack doesn't "succeed" with a non-writable mount.
+                    raise Exception(f"Failed to bootstrap writable FSx directory: {e}")
         
         return response_data
 

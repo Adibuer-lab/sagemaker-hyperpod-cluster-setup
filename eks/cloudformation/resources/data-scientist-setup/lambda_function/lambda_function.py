@@ -154,6 +154,15 @@ def attach_hyperpod_policy(
                 "Resource": hyperpod_cluster_arn
             },
             {
+                "Sid": "DescribeHyperpodClusterNodePermissions",
+                "Effect": "Allow",
+                "Action": [
+                    "sagemaker:ListClusterNodes",
+                    "sagemaker:DescribeClusterNode"
+                ],
+                "Resource": hyperpod_cluster_arn
+            },
+            {
                 "Sid": "AllowK8SMutateViaConsole",
                 "Effect": "Allow",
                 "Action": [
@@ -165,22 +174,37 @@ def attach_hyperpod_policy(
                 "Resource": eks_cluster_arn
             },
             {
-                "Sid": "ListPermission",
+                "Sid": "EksGetToken",
+                "Effect": "Allow",
+                "Action": [
+                    "eks:GetToken"
+                ],
+                "Resource": "*"
+            },
+            {
+                "Sid": "ListClustersPermission",
                 "Effect": "Allow",
                 "Action": [
                     "sagemaker:ListClusters"
                 ],
-                "Resource": f"arn:aws:sagemaker:{os.environ[REGION]}:{os.environ[ACCOUNT_ID]}:cluster/*"
+                "Resource": "*"
             },
             {
                 "Sid": "SageMakerEndpointAccess",
                 "Effect": "Allow",
                 "Action": [
                     "sagemaker:DescribeEndpoint",
-                    "sagemaker:InvokeEndpoint",
-                    "sagemaker:ListEndpoints"
+                    "sagemaker:InvokeEndpoint"
                 ],
                 "Resource": f"arn:aws:sagemaker:{os.environ[REGION]}:{os.environ[ACCOUNT_ID]}:endpoint/*"
+            },
+            {
+                "Sid": "SageMakerListEndpoints",
+                "Effect": "Allow",
+                "Action": [
+                    "sagemaker:ListEndpoints"
+                ],
+                "Resource": "*"
             }
         ]
     }
