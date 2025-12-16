@@ -54,7 +54,83 @@ def _wait_pvc_bound(namespace: str, pvc_name: str, timeout_seconds: int = 300) -
     raise TimeoutError(f"Timed out waiting for PVC {namespace}/{pvc_name} to reach Bound")
 
 
-def _bootstrap_fsx_writable_subdir(fsx_file_system_id: str) -> str:
+def _wait_for_kubectl_access(timeout_seconds: int = 180) -> None:
+    """
+    Wait until kubectl can successfully talk to the cluster.
+
+    This helps when the IAM AccessEntry exists but hasn't fully propagated yet.
+    """
+    start = time.time()
+    last_error = None
+    while time.time() - start < timeout_seconds:
+        proc = _kubectl(["get", "ns"], check=False, timeout_seconds=20)
+        if proc.returncode == 0:
+            return
+        last_error = (proc.stderr or proc.stdout or "").strip()
+        if last_error:
+            print(f"Waiting for kubectl access: {last_error}")
+        time.sleep(10)
+    raise TimeoutError(f"Timed out waiting for kubectl access: {last_error or 'unknown error'}")
+
+
+def _node_is_ready(node_obj: dict) -> bool:
+    for cond in (node_obj.get("status") or {}).get("conditions") or []:
+        if cond.get("type") == "Ready" and cond.get("status") == "True":
+            return True
+    return False
+
+
+def _node_is_fargate(node_obj: dict) -> bool:
+    labels = (node_obj.get("metadata") or {}).get("labels") or {}
+    if labels.get("eks.amazonaws.com/compute-type") == "fargate":
+        return True
+    for taint in (node_obj.get("spec") or {}).get("taints") or []:
+        if taint.get("key") == "eks.amazonaws.com/compute-type" and taint.get("value") == "fargate":
+            return True
+    return False
+
+
+def _wait_for_ready_ec2_node(node_selector: dict | None = None, timeout_seconds: int = 900) -> None:
+    """
+    Wait for at least one Ready, non-Fargate node matching the selector.
+    """
+    label_selector = ""
+    if node_selector:
+        label_selector = ",".join([f"{k}={v}" for k, v in node_selector.items() if v is not None and v != ""])
+    args = ["get", "nodes"]
+    if label_selector:
+        args += ["-l", label_selector]
+    args += ["-o", "json"]
+
+    start = time.time()
+    while time.time() - start < timeout_seconds:
+        proc = _kubectl(args, check=False, timeout_seconds=20)
+        if proc.returncode != 0:
+            time.sleep(10)
+            continue
+        try:
+            nodes_obj = json.loads(proc.stdout or "{}")
+        except json.JSONDecodeError:
+            time.sleep(10)
+            continue
+
+        nodes = nodes_obj.get("items") or []
+        ready_ec2 = [n for n in nodes if _node_is_ready(n) and not _node_is_fargate(n)]
+        if ready_ec2:
+            print(
+                f"Found {len(ready_ec2)} Ready EC2 node(s)"
+                + (f" for selector '{label_selector}'." if label_selector else ".")
+            )
+            return
+        time.sleep(10)
+
+    raise TimeoutError(
+        "Timed out waiting for a Ready EC2 node"
+        + (f" matching selector '{label_selector}'." if label_selector else ".")
+    )
+
+
+def _bootstrap_fsx_writable_subdir(fsx_file_system_id: str, *, node_selector: dict | None = None) -> str:
     """
     Create a stable, writable directory in the FSx root so SageMaker Spaces can mount it.
 
@@ -79,6 +155,10 @@ def _bootstrap_fsx_writable_subdir(fsx_file_system_id: str) -> str:
     suffix = uuid.uuid4().hex[:8]
     pod_name = _sanitize_k8s_name(f"fsx-bootstrap-{fs_id}-{suffix}", max_length=63)
 
+    node_selector_yaml = ""
+    if node_selector:
+        node_selector_yaml = "  nodeSelector:\n" + "\n".join([f"    {k}: {v}" for k, v in node_selector.items()]) + "\n"
+
     manifest = f"""apiVersion: v1
 kind: Pod
 metadata:
@@ -86,6 +166,7 @@ metadata:
   namespace: {namespace}
 spec:
   restartPolicy: Never
+{node_selector_yaml}  terminationGracePeriodSeconds: 0
   containers:
     - name: bootstrap
       image: {FSX_BOOTSTRAP_IMAGE}
@@ -165,6 +246,17 @@ spec:
             _kubectl(["delete", "pod", pod_name, "-n", namespace, "--ignore-not-found=true"], check=False, timeout_seconds=30)
         except Exception:
             pass
+
+
+def _get_action(event: dict) -> str:
+    props = (event or {}).get("ResourceProperties") or {}
+    return str(props.get("Action") or props.get("action") or "").strip()
+
+
+def _get_bootstrap_node_role(event: dict) -> str:
+    props = (event or {}).get("ResourceProperties") or {}
+    node_role = str(props.get("NodeRole") or props.get("nodeRole") or os.environ.get("FSX_BOOTSTRAP_NODE_ROLE", "system")).strip()
+    return node_role or "system"
 
 
 def lambda_handler(event, context):
@@ -701,7 +793,27 @@ def on_create(event):
         }
 
         resourceId = event['LogicalResourceId']
-        # Ensure required environment variables are set
+        action = _get_action(event)
+
+        if action == "BootstrapWritableSubdir":
+            # Minimal environment requirements for the bootstrap-only action.
+            for var in ["CLUSTER_NAME", "FSX_FILE_SYSTEM_ID", "AWS_REGION"]:
+                if var not in os.environ or not str(os.environ.get(var, "")).strip():
+                    raise ValueError(f"Missing required environment variable: {var} for bootstrap")
+
+            write_kubeconfig(os.environ["CLUSTER_NAME"], os.environ["AWS_REGION"])
+            _wait_for_kubectl_access(timeout_seconds=180)
+
+            node_role = _get_bootstrap_node_role(event)
+            node_selector = {"node-role": node_role} if node_role else None
+            _wait_for_ready_ec2_node(node_selector=node_selector, timeout_seconds=900)
+
+            response_data["SageMakerFileSystemPath"] = _bootstrap_fsx_writable_subdir(
+                os.environ["FSX_FILE_SYSTEM_ID"], node_selector=node_selector
+            )
+            return response_data
+
+        # Ensure required environment variables are set for the original Step1/Step2 behavior.
         required_env_vars = [
             'CLUSTER_NAME',
             'PER_UNIT_STORAGE_THROUGHPUT',
@@ -713,11 +825,11 @@ def on_create(event):
             'KUBECONFIG',
             'LD_LIBRARY_PATH'
         ]
-        
+
         # STORAGE_CAPACITY is only required for dynamic provisioning
         if os.environ['FSX_FILE_SYSTEM_ID'] == '' and 'STORAGE_CAPACITY' not in os.environ:
             raise ValueError("Missing required environment variable: STORAGE_CAPACITY for dynamic provisioning")
-        
+
         for var in required_env_vars:
             if var not in os.environ:
                 raise ValueError(f"Missing required environment variable: {var}")
@@ -769,13 +881,7 @@ def on_create(event):
                 
                 # Create Kubernetes resources for existing FSx file system
                 create_existing_fsx_resources(response_data)
-
-                # Ensure a writable directory exists for SageMaker Spaces (non-root users).
-                try:
-                    response_data["SageMakerFileSystemPath"] = _bootstrap_fsx_writable_subdir(os.environ["FSX_FILE_SYSTEM_ID"])
-                except Exception as e:
-                    # Fail the custom resource so the stack doesn't "succeed" with a non-writable mount.
-                    raise Exception(f"Failed to bootstrap writable FSx directory: {e}")
+                response_data["SageMakerFileSystemPath"] = f"/{os.environ['FSX_FILE_SYSTEM_ID']}"
         
         return response_data
 
