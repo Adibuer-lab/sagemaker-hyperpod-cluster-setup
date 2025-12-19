@@ -20,6 +20,7 @@ run helm-chart-injector generate-helm-lambda-zip.sh
 run inference-helm-chart-injector generate-inf-helm-lambda-zip.sh
 run inference-k8s-service-account-creator generate-inf-sa-creation-lambda-zip.sh
 run data-scientist-setup generate-ds-setup-lambda-zip.sh
+run nemo-space-sync generate-nemo-space-sync-lambda-zip.sh
 run tiered-cache-config generate-tiered-cache-lambda-zip.sh
 run hpto-addon-installer generate-hpto-addon-lambda-zip.sh
 run fsx-for-lustre generate-fsx-lambda-zip.sh
