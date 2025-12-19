@@ -6,7 +6,7 @@ docker build $DOCKER_NETWORK -t lambda-layer-builder .
 
 # Run the container and copy the zip file
 docker run --rm \
-  -v $(pwd)/../../resources2/artifacts:/layer/artifacts \
+  -v $(pwd)/../../resources/artifacts:/layer/artifacts \
   lambda-layer-builder \
   bash -c "chmod +x build-layer.sh && ./build-layer.sh && cp nemo-space-sync-lambda-layer.zip /layer/artifacts/"
 
