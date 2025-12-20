@@ -79,6 +79,7 @@ Metadata:
         Parameters:
           - DataScientistRole1
           - DataScientistRole1Namespaces
+          - UserNamespaces
           - DataScientistRole2
           - DataScientistRole2Namespaces
           - DataScientistRole3
@@ -273,6 +274,8 @@ Metadata:
         default: Data Scientist Role 1
       DataScientistRole1Namespaces:
         default: Data Scientist Role 1 Namespaces
+      UserNamespaces:
+        default: User Workload Namespaces
       DataScientistRole2:
         default: Data Scientist Role 2
       DataScientistRole2Namespaces:
@@ -768,6 +771,12 @@ Parameters:
     Description: >-
       Comma-separated list of Kubernetes namespaces for DataScientistRole1. Model deployment permissions will be scoped
       to these namespaces. (optional)
+  UserNamespaces:
+    Type: String
+    Default: kubeflow
+    Description: >-
+      Comma-separated list of user workload namespaces (for FSx PVCs, workspaces, and other user-scoped resources). Use
+      hyperpod-ns-<team> when task governance is enabled.
   DataScientistRole2:
     Type: String
     Default: ''
@@ -2196,7 +2205,7 @@ Resources:
         FsxFileSystemId:
           Ref: FsxFileSystemId
         UserNamespaces:
-          Ref: DataScientistRole1Namespaces
+          Ref: UserNamespaces
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/FsxStack
     Condition: CreateFsxStackCondition
@@ -2318,7 +2327,7 @@ Resources:
               - FsxStack
               - Outputs.FsxFileSystemId
           USER_NAMESPACES:
-            Ref: DataScientistRole1Namespaces
+            Ref: UserNamespaces
           FSX_BOOTSTRAP_NODE_ROLE: system
           PATH: /opt/python/bin:/var/lang/bin:/usr/local/bin:/usr/bin/:/bin
           KUBECONFIG: /tmp/.kube/config
@@ -2858,7 +2867,7 @@ Resources:
         LayerS3Key: resources/artifacts/fsx-lambda-layer.zip
         FunctionS3Key: resources/artifacts/workspace-templates-lambda-function.zip
         UserNamespaces:
-          Ref: DataScientistRole1Namespaces
+          Ref: UserNamespaces
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/WorkspaceTemplatesStack
   TieredStorageUpdateStack:

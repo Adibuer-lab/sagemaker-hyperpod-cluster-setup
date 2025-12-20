@@ -19,7 +19,7 @@ Parameters:
   UserNamespaces:
     Type: String
     Default: kubeflow
-    Description: Unused - kept for main-stack compatibility
+    Description: Unused - kept for main-stack compatibility (default kubeflow; use hyperpod-ns-<team> when task governance is enabled)
 
 Resources:
   WorkspaceTemplatesRole:

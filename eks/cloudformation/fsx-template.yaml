@@ -78,7 +78,7 @@ Parameters:
   UserNamespaces:
     Type: String
     Default: 'kubeflow'
-    Description: Comma-separated list of namespaces to create FSx PVC in (e.g., kubeflow,default)
+    Description: Comma-separated list of namespaces to create FSx PVC in (default kubeflow; use hyperpod-ns-<team> when task governance is enabled)
 Conditions:
   UseFsxFileSystemIdCondition:
     Fn::Not:
