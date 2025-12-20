@@ -24,6 +24,7 @@ Metadata:
           - CreateHyperPodClusterStack
           - HyperPodClusterName
           - CreateTaskGovernanceClusterPolicyStack
+          - TaskGovernanceAddonVersion
           - TieredStorageConfig
           - TieredKVCacheConfig
       - Label:
@@ -324,6 +325,8 @@ Metadata:
         default: HyperPod Cluster Name
       CreateTaskGovernanceClusterPolicyStack:
         default: Create Cluster Policy
+      TaskGovernanceAddonVersion:
+        default: Task Governance Add-on Version
       TieredStorageConfig:
         default: Tiered Storage Configuration
       TieredKVCacheConfig:
@@ -1058,6 +1061,12 @@ Parameters:
       - 'true'
       - 'false'
     Description: Boolean to Create Cluster Policy Stack
+  TaskGovernanceAddonVersion:
+    Type: String
+    Default: ''
+    Description: >-
+      Optional. Version of the HyperPod task governance EKS add-on to install. Leave empty to use the latest version
+      recommended by Amazon EKS.
   CreateFsxStack:
     Type: String
     Default: 'true'
@@ -2037,6 +2046,8 @@ Resources:
                 - HyperPodClusterStack
                 - Outputs.HyperPodClusterName
             - Ref: HyperPodClusterName
+        TaskGovernanceAddonVersion:
+          Ref: TaskGovernanceAddonVersion
     DependsOn:
       - EKSClusterStack
       - HyperPodClusterStack

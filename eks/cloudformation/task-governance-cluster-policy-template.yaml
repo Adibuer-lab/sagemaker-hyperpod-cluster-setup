@@ -5,11 +5,28 @@ Parameters:
   HyperPodClusterName:
     Type: String
     Description: Name of the HyperPod cluster
+  TaskGovernanceAddonVersion:
+    Type: String
+    Default: ''
+    Description: >-
+      Optional. Version of the HyperPod task governance EKS add-on to install. Leave empty to use the latest version
+      recommended by Amazon EKS.
+Conditions:
+  TaskGovernanceAddonVersionProvided:
+    Fn::Not:
+      - Fn::Equals:
+          - Ref: TaskGovernanceAddonVersion
+          - ''
 Resources:
   TaskGovernanceAddOn:
     Type: AWS::EKS::Addon
     Properties:
       AddonName: amazon-sagemaker-hyperpod-taskgovernance
+      AddonVersion:
+        Fn::If:
+          - TaskGovernanceAddonVersionProvided
+          - Ref: TaskGovernanceAddonVersion
+          - Ref: AWS::NoValue
       ClusterName:
         Ref: EKSClusterName
       ResolveConflicts: OVERWRITE
