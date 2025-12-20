@@ -25,6 +25,8 @@ Metadata:
           - HyperPodClusterName
           - CreateTaskGovernanceClusterPolicyStack
           - TaskGovernanceAddonVersion
+          - EnableKueueExternalFrameworkPatch
+          - KueueExternalFrameworks
           - TieredStorageConfig
           - TieredKVCacheConfig
       - Label:
@@ -327,6 +329,10 @@ Metadata:
         default: Create Cluster Policy
       TaskGovernanceAddonVersion:
         default: Task Governance Add-on Version
+      EnableKueueExternalFrameworkPatch:
+        default: Patch Kueue external frameworks
+      KueueExternalFrameworks:
+        default: Kueue external frameworks
       TieredStorageConfig:
         default: Tiered Storage Configuration
       TieredKVCacheConfig:
@@ -1067,6 +1073,17 @@ Parameters:
     Description: >-
       Optional. Version of the HyperPod task governance EKS add-on to install. Leave empty to use the latest version
       recommended by Amazon EKS.
+  EnableKueueExternalFrameworkPatch:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Boolean to patch Kueue manager config with external frameworks
+  KueueExternalFrameworks:
+    Type: String
+    Default: HyperPodPytorchJob.v1.sagemaker.amazonaws.com
+    Description: Comma-separated list of Kueue external frameworks to add
   CreateFsxStack:
     Type: String
     Default: 'true'
@@ -1250,6 +1267,20 @@ Conditions:
           - 'true'
       - Fn::Equals:
           - Ref: CreateTaskGovernanceClusterPolicyStack
+          - 'true'
+  EnableKueueExternalFrameworkPatchCondition:
+    Fn::And:
+      - Fn::Equals:
+          - Ref: CreateEKSClusterStack
+          - 'true'
+      - Fn::Equals:
+          - Ref: CreateHyperPodClusterStack
+          - 'true'
+      - Fn::Equals:
+          - Ref: CreateTaskGovernanceClusterPolicyStack
+          - 'true'
+      - Fn::Equals:
+          - Ref: EnableKueueExternalFrameworkPatch
           - 'true'
 Mappings:
   AMPRegionMapping:
@@ -2055,6 +2086,38 @@ Resources:
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/TaskGovernanceClusterPolicyStack
     Condition: EnableTaskGovernanceClusterPolicyCondition
+  KueueExternalFrameworksPatchStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL:
+        Fn::If:
+          - CustomBucketCondition
+          - Fn::Sub: >-
+              https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/kueue-external-frameworks-patch-template.yaml
+          - Fn::Sub: >-
+              https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/kueue-external-frameworks-patch-template.yaml
+      Parameters:
+        ResourceNamePrefix:
+          Ref: ResourceNamePrefix
+        EKSClusterName:
+          Fn::If:
+            - CreateEKSClusterStackCondition
+            - Fn::GetAtt:
+                - EKSClusterStack
+                - Outputs.EKSClusterName
+            - Ref: EKSClusterName
+        CustomResourceS3Bucket:
+          Fn::If:
+            - CustomBucketCondition
+            - Ref: CustomBucketName
+            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
+        ExternalFrameworks:
+          Ref: KueueExternalFrameworks
+    DependsOn:
+      - TaskGovernanceClusterPolicyStack
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/KueueExternalFrameworksPatchStack
+    Condition: EnableKueueExternalFrameworkPatchCondition
   FsxStack:
     Type: AWS::CloudFormation::Stack
     Properties:

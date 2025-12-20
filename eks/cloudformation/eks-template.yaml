@@ -187,6 +187,13 @@ Resources:
           Labels:
             - Key: control-plane
               Value: hyperpod-observability-controller-manager
+        # Kueue controller manager (HyperPod task governance)
+        - Namespace: kueue-system
+          Labels:
+            - Key: control-plane
+              Value: controller-manager
+            - Key: app.kubernetes.io/name
+              Value: kueue
     Metadata:
       aws:cdk:path: EksCfnTemplate/FargateProfileControllers
 
