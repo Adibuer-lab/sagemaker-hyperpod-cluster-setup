@@ -54,6 +54,13 @@ Parameters:
       - 'true'
       - 'false'
     Description: Specify whether to create new prometheus workspace
+  CreatePrometheusVPCEndpoint:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Specify whether to create Prometheus (APS) VPC endpoint
   PrometheusWorkspaceId:
     Type: String
     Default: ''
@@ -175,6 +182,10 @@ Conditions:
     Fn::Equals:
       - Ref: CreatePrometheusWorkspace
       - 'true'
+  CreatePrometheusVPCEndpointCondition:
+    Fn::Equals:
+      - Ref: CreatePrometheusVPCEndpoint
+      - 'true'
   GrafanaNewWorkspaceCondition:
     Fn::Equals:
       - Ref: CreateGrafanaWorkspace
@@ -261,6 +272,7 @@ Resources:
         Ref: VpcId
     Metadata:
       aws:cdk:path: ObservabilityCfnTemplate/PrometheusVPCEndpoint
+    Condition: CreatePrometheusVPCEndpointCondition
   PrometheusWorkspace:
     Type: AWS::APS::Workspace
     Properties:
@@ -1011,6 +1023,7 @@ Outputs:
     Export:
       Name:
         Fn::Sub: ${AWS::StackName}-PrometheusVPCEndpointId
+    Condition: CreatePrometheusVPCEndpointCondition
   HyperpodPrometheusWorkspaceId:
     Description: Prometheus Workspace ID
     Value:

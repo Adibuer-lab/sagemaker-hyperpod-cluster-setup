@@ -167,6 +167,10 @@ def on_create(event):
                 'ParameterValue': props.get('CreatePrometheusWorkspace')
                 },                
                 {
+                'ParameterKey': 'CreatePrometheusVPCEndpoint',
+                'ParameterValue': props.get('CreatePrometheusVPCEndpoint')
+                },
+                {
                 'ParameterKey': 'CreateGrafanaWorkspace',
                 'ParameterValue': props.get('CreateGrafanaWorkspace')
                 },
@@ -301,6 +305,10 @@ def on_update(event):
                 'ParameterKey': 'CreatePrometheusWorkspace',
                 'ParameterValue': props.get('CreatePrometheusWorkspace')
                 },                
+                {
+                'ParameterKey': 'CreatePrometheusVPCEndpoint',
+                'ParameterValue': props.get('CreatePrometheusVPCEndpoint')
+                },
                 {
                 'ParameterKey': 'CreateGrafanaWorkspace',
                 'ParameterValue': props.get('CreateGrafanaWorkspace')
