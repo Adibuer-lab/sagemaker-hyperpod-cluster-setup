@@ -54,13 +54,6 @@ Parameters:
       - 'true'
       - 'false'
     Description: Specify whether to create new prometheus workspace
-  CreatePrometheusVPCEndpoint:
-    Type: String
-    Default: 'true'
-    AllowedValues:
-      - 'true'
-      - 'false'
-    Description: Specify whether to create Prometheus (APS) VPC endpoint
   PrometheusWorkspaceId:
     Type: String
     Default: ''
@@ -182,10 +175,6 @@ Conditions:
     Fn::Equals:
       - Ref: CreatePrometheusWorkspace
       - 'true'
-  CreatePrometheusVPCEndpointCondition:
-    Fn::Equals:
-      - Ref: CreatePrometheusVPCEndpoint
-      - 'true'
   GrafanaNewWorkspaceCondition:
     Fn::Equals:
       - Ref: CreateGrafanaWorkspace
@@ -249,30 +238,6 @@ Resources:
     Metadata:
       aws:cdk:path: ObservabilityCfnTemplate/GrafanaVPCEndpoint
     Condition: IsAmgAllowed
-  PrometheusVPCEndpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Properties:
-      PrivateDnsEnabled: true
-      SecurityGroupIds:
-        - Ref: SecurityGroupId
-      ServiceName:
-        Fn::Sub: com.amazonaws.${AWS::Region}.aps-workspaces
-      SubnetIds:
-        Fn::Split:
-          - ','
-          - Fn::Join:
-              - ','
-              - Ref: PrivateSubnetIds
-      Tags:
-        - Key: Name
-          Value:
-            Fn::Sub: ${ResourceNamePrefix}-pVpce
-      VpcEndpointType: Interface
-      VpcId:
-        Ref: VpcId
-    Metadata:
-      aws:cdk:path: ObservabilityCfnTemplate/PrometheusVPCEndpoint
-    Condition: CreatePrometheusVPCEndpointCondition
   PrometheusWorkspace:
     Type: AWS::APS::Workspace
     Properties:
@@ -1016,14 +981,6 @@ Outputs:
       Name:
         Fn::Sub: ${AWS::StackName}-GrafanaVPCEndpointId
     Condition: IsAmgAllowed
-  PrometheusVPCEndpointId:
-    Description: Prometheus VPC Endpoint ID
-    Value:
-      Ref: PrometheusVPCEndpoint
-    Export:
-      Name:
-        Fn::Sub: ${AWS::StackName}-PrometheusVPCEndpointId
-    Condition: CreatePrometheusVPCEndpointCondition
   HyperpodPrometheusWorkspaceId:
     Description: Prometheus Workspace ID
     Value:
