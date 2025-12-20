@@ -36,6 +36,8 @@ Metadata:
           - VpcId
           - VpcCIDR
           - AvailabilityZoneIds
+          - AvailabilityZones
+          - EksAvailabilityZones
           - CreateSecurityGroupStack
           - SecurityGroupId
           - SecurityGroupIds
@@ -209,6 +211,10 @@ Metadata:
         default: VPC CIDR Range
       AvailabilityZoneIds:
         default: Availability Zone IDs
+      AvailabilityZones:
+        default: Availability Zone Names
+      EksAvailabilityZones:
+        default: EKS Availability Zone Names
       CreateSecurityGroupStack:
         default: Create New Security Group
       SecurityGroupId:
@@ -436,6 +442,14 @@ Parameters:
     Type: String
     Default: use2-az1,use2-az2
     Description: List of AZs to deploy subnets in (up to 5, comma separated)
+  AvailabilityZones:
+    Type: String
+    Default: us-east-1a,us-east-1b
+    Description: List of AZ names corresponding to AvailabilityZoneIds (comma separated)
+  EksAvailabilityZones:
+    Type: String
+    Default: us-east-1a,us-east-1b
+    Description: EKS-eligible AZ names corresponding to EksPrivateSubnetIds (comma separated)
   VpcId:
     Type: String
     Default: vpc-1234567890abcdef0
@@ -2943,6 +2957,14 @@ Outputs:
         - EKSClusterStack
         - Outputs.EKSClusterName
     Condition: CreateEKSClusterStackCondition
+  OutputAvailabilityZones:
+    Description: Comma-separated AZ names provided to the stack
+    Value:
+      Ref: AvailabilityZones
+  OutputEksAvailabilityZones:
+    Description: Comma-separated EKS-eligible AZ names
+    Value:
+      Ref: EksAvailabilityZones
   OutputSageMakerIAMRoleArn:
     Value:
       Fn::GetAtt:
