@@ -35,5 +35,6 @@ run coredns-restart generate-coredns-restart-lambda-func.sh
 run workspace-templates generate-workspace-templates-lambda-func.sh
 run karpenter-setup generate-karpenter-setup-lambda-func.sh
 run kueue-external-frameworks-patch generate-kueue-external-frameworks-patch-lambda-func.sh
+run kueue-az-placement generate-kueue-az-placement-lambda-func.sh
 
 echo "=== Done ==="

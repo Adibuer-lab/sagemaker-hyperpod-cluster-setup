@@ -27,6 +27,10 @@ Metadata:
           - TaskGovernanceAddonVersion
           - EnableKueueExternalFrameworkPatch
           - KueueExternalFrameworks
+          - EnableKueueAzPlacementResources
+          - KueueResourceFlavorPrefix
+          - KueueClusterQueueName
+          - KueueLocalQueueName
           - TieredStorageConfig
           - TieredKVCacheConfig
       - Label:
@@ -342,6 +346,14 @@ Metadata:
         default: Patch Kueue external frameworks
       KueueExternalFrameworks:
         default: Kueue external frameworks
+      EnableKueueAzPlacementResources:
+        default: Create Kueue AZ placement resources
+      KueueResourceFlavorPrefix:
+        default: Kueue ResourceFlavor prefix
+      KueueClusterQueueName:
+        default: Kueue ClusterQueue name
+      KueueLocalQueueName:
+        default: Kueue LocalQueue name
       TieredStorageConfig:
         default: Tiered Storage Configuration
       TieredKVCacheConfig:
@@ -1107,6 +1119,25 @@ Parameters:
     Type: String
     Default: HyperPodPytorchJob.v1.sagemaker.amazonaws.com
     Description: Comma-separated list of Kueue external frameworks to add
+  EnableKueueAzPlacementResources:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Boolean to create Kueue AZ placement resources (ResourceFlavors, ClusterQueue, LocalQueues)
+  KueueResourceFlavorPrefix:
+    Type: String
+    Default: nemo-az
+    Description: Prefix for Kueue ResourceFlavor names
+  KueueClusterQueueName:
+    Type: String
+    Default: nemo-az-clusterqueue
+    Description: Name of the Kueue ClusterQueue for AZ placement
+  KueueLocalQueueName:
+    Type: String
+    Default: nemo-az-localqueue
+    Description: Name of the Kueue LocalQueue created in each user namespace
   CreateFsxStack:
     Type: String
     Default: 'true'
@@ -1304,6 +1335,20 @@ Conditions:
           - 'true'
       - Fn::Equals:
           - Ref: EnableKueueExternalFrameworkPatch
+          - 'true'
+  EnableKueueAzPlacementResourcesCondition:
+    Fn::And:
+      - Fn::Equals:
+          - Ref: CreateEKSClusterStack
+          - 'true'
+      - Fn::Equals:
+          - Ref: CreateHyperPodClusterStack
+          - 'true'
+      - Fn::Equals:
+          - Ref: CreateTaskGovernanceClusterPolicyStack
+          - 'true'
+      - Fn::Equals:
+          - Ref: EnableKueueAzPlacementResources
           - 'true'
 Mappings:
   AMPRegionMapping:
@@ -2141,6 +2186,50 @@ Resources:
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/KueueExternalFrameworksPatchStack
     Condition: EnableKueueExternalFrameworkPatchCondition
+  KueueAzPlacementResourcesStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL:
+        Fn::If:
+          - CustomBucketCondition
+          - Fn::Sub: >-
+              https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/kueue-az-placement-template.yaml
+          - Fn::Sub: >-
+              https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/kueue-az-placement-template.yaml
+      Parameters:
+        ResourceNamePrefix:
+          Ref: ResourceNamePrefix
+        EKSClusterName:
+          Fn::If:
+            - CreateEKSClusterStackCondition
+            - Fn::GetAtt:
+                - EKSClusterStack
+                - Outputs.EKSClusterName
+            - Ref: EKSClusterName
+        CustomResourceS3Bucket:
+          Fn::If:
+            - CustomBucketCondition
+            - Ref: CustomBucketName
+            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
+        EksAvailabilityZones:
+          Ref: EksAvailabilityZones
+        UserNamespaces:
+          Ref: UserNamespaces
+        KueueResourceFlavorPrefix:
+          Ref: KueueResourceFlavorPrefix
+        KueueClusterQueueName:
+          Ref: KueueClusterQueueName
+        KueueLocalQueueName:
+          Ref: KueueLocalQueueName
+        FsxAvailabilityZoneId:
+          Ref: FsxAvailabilityZoneId
+        FsxSubnetId:
+          Ref: FsxSubnetId
+    DependsOn:
+      - TaskGovernanceClusterPolicyStack
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/KueueAzPlacementResourcesStack
+    Condition: EnableKueueAzPlacementResourcesCondition
   FsxStack:
     Type: AWS::CloudFormation::Stack
     Properties:

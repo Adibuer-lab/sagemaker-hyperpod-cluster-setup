@@ -1,0 +1,158 @@
+Description: Create Kueue AZ placement resources (ResourceFlavors, ClusterQueue, LocalQueues)
+
+Parameters:
+  ResourceNamePrefix:
+    Type: String
+    Default: sagemaker-hyperpod-eks
+  EKSClusterName:
+    Type: String
+  CustomResourceS3Bucket:
+    Type: String
+    Default: aws-sagemaker-hyperpod-cluster-setup-us-east-2-prod
+  LayerS3Key:
+    Type: String
+    Default: resources/artifacts/ds-setup-lambda-layer.zip
+    Description: Lambda layer with kubectl and aws-iam-authenticator
+  FunctionS3Key:
+    Type: String
+    Default: resources/artifacts/kueue-az-placement-lambda-function.zip
+  EksAvailabilityZones:
+    Type: String
+    Description: Comma-separated list of EKS-eligible AZ names
+  UserNamespaces:
+    Type: String
+    Description: Comma-separated list of user workload namespaces
+  KueueResourceFlavorPrefix:
+    Type: String
+    Default: nemo-az
+  KueueClusterQueueName:
+    Type: String
+    Default: nemo-az-clusterqueue
+  KueueLocalQueueName:
+    Type: String
+    Default: nemo-az-localqueue
+  FsxAvailabilityZoneId:
+    Type: String
+    Default: ''
+  FsxSubnetId:
+    Type: String
+    Default: ''
+
+Resources:
+  KueueAzPlacementRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Fn::Sub: ${ResourceNamePrefix}-kueue-az-placement-role
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: '2012-10-17'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: eks:DescribeCluster
+                Resource:
+                  Fn::Sub: arn:aws:eks:${AWS::Region}:${AWS::AccountId}:cluster/${EKSClusterName}
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeAvailabilityZones
+                Resource: '*'
+          PolicyName: EKSAccess
+
+  KueueAzPlacementAccessEntry:
+    Type: AWS::EKS::AccessEntry
+    Properties:
+      AccessPolicies:
+        - AccessScope:
+            Type: cluster
+          PolicyArn: arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+      ClusterName:
+        Ref: EKSClusterName
+      PrincipalArn:
+        Fn::GetAtt:
+          - KueueAzPlacementRole
+          - Arn
+
+  KueueAzPlacementLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      CompatibleArchitectures:
+        - x86_64
+      CompatibleRuntimes:
+        - python3.9
+        - python3.10
+        - python3.11
+        - python3.12
+      Content:
+        S3Bucket:
+          Ref: CustomResourceS3Bucket
+        S3Key:
+          Ref: LayerS3Key
+      Description: Lambda layer for kubectl and aws-iam-authenticator
+      LayerName:
+        Fn::Sub: ${ResourceNamePrefix}-kueue-az-placement-layer
+
+  KueueAzPlacementFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          Ref: CustomResourceS3Bucket
+        S3Key:
+          Ref: FunctionS3Key
+      Environment:
+        Variables:
+          EKS_CLUSTER_NAME:
+            Ref: EKSClusterName
+          EKS_AZ_NAMES:
+            Ref: EksAvailabilityZones
+          USER_NAMESPACES:
+            Ref: UserNamespaces
+          KUEUE_FLAVOR_PREFIX:
+            Ref: KueueResourceFlavorPrefix
+          KUEUE_CLUSTER_QUEUE_NAME:
+            Ref: KueueClusterQueueName
+          KUEUE_LOCAL_QUEUE_NAME:
+            Ref: KueueLocalQueueName
+          FSX_AVAILABILITY_ZONE_ID:
+            Ref: FsxAvailabilityZoneId
+          FSX_SUBNET_ID:
+            Ref: FsxSubnetId
+          PATH: /opt/python/bin:/var/lang/bin:/usr/local/bin:/usr/bin/:/bin
+          KUBECONFIG: /tmp/.kube/config
+          LD_LIBRARY_PATH: /opt/python/lib
+      FunctionName:
+        Fn::Sub: ${ResourceNamePrefix}-kueue-az-placement
+      Handler: lambda_function.handler
+      Layers:
+        - Ref: KueueAzPlacementLayer
+      Role:
+        Fn::GetAtt:
+          - KueueAzPlacementRole
+          - Arn
+      Runtime: python3.12
+      Timeout: 300
+    DependsOn:
+      - KueueAzPlacementAccessEntry
+
+  KueueAzPlacementCustomResource:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - KueueAzPlacementFunction
+          - Arn
+
+Outputs:
+  KueueAzPlacementComplete:
+    Description: Kueue AZ placement resources created
+    Value: true
