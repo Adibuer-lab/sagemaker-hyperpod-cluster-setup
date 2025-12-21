@@ -2791,6 +2791,9 @@ Resources:
           Ref: CreatePrometheusWorkspace
         CreateGrafanaWorkspace:
           Ref: CreateGrafanaWorkspace
+    DependsOn:
+      - CertManagerStack
+      - HyperPodClusterStack
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/ObservabilityStack
     Condition: EnableObservabilityFeatureCondition
