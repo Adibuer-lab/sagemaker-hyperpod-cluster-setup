@@ -1124,7 +1124,7 @@ Parameters:
     Description: Boolean to Create HyperPod Cluster Stack
   CreateTaskGovernanceClusterPolicyStack:
     Type: String
-    Default: 'false'
+    Default: 'true'
     AllowedValues:
       - 'true'
       - 'false'
