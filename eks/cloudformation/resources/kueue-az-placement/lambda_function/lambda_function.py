@@ -29,6 +29,10 @@ def _parse_csv(value):
     return [v.strip() for v in (value or "").split(",") if v.strip()]
 
 
+def _bool_env(value):
+    return str(value).strip().lower() in ("1", "true", "yes")
+
+
 def _sanitize_name(name, max_len=63):
     name = re.sub(r"[^a-z0-9-]+", "-", name.lower())
     name = re.sub(r"-+", "-", name).strip("-")
@@ -237,6 +241,7 @@ def _create_resources():
         os.environ.get("KUEUE_LOCAL_QUEUE_NAME", "nemo-az-localqueue").strip()
         or "nemo-az-localqueue"
     )
+    enable_per_az = _bool_env(os.environ.get("ENABLE_PER_AZ_QUEUES", "false"))
 
     _setup_kubeconfig(cluster_name, region)
     api_version = _get_kueue_api_version_with_retry()
@@ -262,9 +267,49 @@ def _create_resources():
     ordered_flavors = [flavor_names[az] for az in ordered_azs]
     _apply_resource(_build_cluster_queue(api_version, cluster_queue_name, ordered_flavors))
 
+    per_az_clusterqueues = {}
+    if enable_per_az:
+        seen_cqs = {cluster_queue_name}
+        for az in ordered_azs:
+            base = f"{cluster_queue_name}-{az}"
+            name = _sanitize_name(base)
+            if name in seen_cqs:
+                name = _sanitize_name(f"{base}-{az}")
+            per_az_clusterqueues[az] = name
+            seen_cqs.add(name)
+            _apply_resource(_build_cluster_queue(api_version, name, [flavor_names[az]]))
+
+    preferred_az = ordered_azs[0]
+    preferred_clusterqueue = cluster_queue_name
+    if enable_per_az and preferred_az in per_az_clusterqueues:
+        preferred_clusterqueue = per_az_clusterqueues[preferred_az]
+
     for namespace in namespaces:
         _ensure_namespace(namespace)
-        _apply_resource(_build_local_queue(api_version, local_queue_name, namespace, cluster_queue_name))
+        _apply_resource(
+            _build_local_queue(
+                api_version,
+                local_queue_name,
+                namespace,
+                preferred_clusterqueue,
+            )
+        )
+        if enable_per_az:
+            seen_lqs = {local_queue_name}
+            for az in ordered_azs:
+                base = f"{local_queue_name}-{az}"
+                name = _sanitize_name(base)
+                if name in seen_lqs:
+                    name = _sanitize_name(f"{base}-{az}")
+                seen_lqs.add(name)
+                _apply_resource(
+                    _build_local_queue(
+                        api_version,
+                        name,
+                        namespace,
+                        per_az_clusterqueues[az],
+                    )
+                )
 
     return {
         "ApiVersion": api_version,
@@ -272,6 +317,8 @@ def _create_resources():
         "ClusterQueue": cluster_queue_name,
         "LocalQueue": local_queue_name,
         "PreferredFsxAz": fsx_az_name or "",
+        "PerAzQueuesEnabled": str(enable_per_az).lower(),
+        "PerAzClusterQueues": ",".join(per_az_clusterqueues.values()),
         "Namespaces": ",".join(namespaces),
     }
 
@@ -299,7 +346,25 @@ def _delete_resources():
     for namespace in namespaces:
         _delete_resource("localqueue", local_queue_name, namespace=namespace)
 
+    seen_lqs = {local_queue_name}
+    for az in az_list:
+        base = f"{local_queue_name}-{az}"
+        name = _sanitize_name(base)
+        if name in seen_lqs:
+            name = _sanitize_name(f"{base}-{az}")
+        seen_lqs.add(name)
+        for namespace in namespaces:
+            _delete_resource("localqueue", name, namespace=namespace)
+
     _delete_resource("clusterqueue", cluster_queue_name)
+    seen_cqs = {cluster_queue_name}
+    for az in az_list:
+        base = f"{cluster_queue_name}-{az}"
+        name = _sanitize_name(base)
+        if name in seen_cqs:
+            name = _sanitize_name(f"{base}-{az}")
+        seen_cqs.add(name)
+        _delete_resource("clusterqueue", name)
 
     for az in az_list:
         name = _sanitize_name(f"{flavor_prefix}-{az}")

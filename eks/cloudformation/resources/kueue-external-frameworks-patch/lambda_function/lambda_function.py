@@ -66,6 +66,27 @@ def parse_frameworks(value):
     return result
 
 
+def parse_bool(value):
+    if value is None:
+        return None
+    value = str(value).strip().lower()
+    if value == "":
+        return None
+    return value in ("1", "true", "yes")
+
+
+def parse_int(value):
+    if value is None:
+        return None
+    value = str(value).strip()
+    if value == "":
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
 def select_config_key(configmap_data):
     if DEFAULT_CONFIG_KEY in configmap_data:
         return DEFAULT_CONFIG_KEY
@@ -77,8 +98,7 @@ def select_config_key(configmap_data):
     return None
 
 
-def update_external_frameworks(config_yaml, frameworks):
-    config = yaml.safe_load(config_yaml) or {}
+def merge_external_frameworks(config, frameworks):
     integrations = config.get("integrations") or {}
     current = integrations.get("externalFrameworks") or []
     if not isinstance(current, list):
@@ -91,12 +111,34 @@ def update_external_frameworks(config_yaml, frameworks):
             changed = True
 
     if not changed:
-        return config_yaml, False
+        return False
 
     integrations["externalFrameworks"] = current
     config["integrations"] = integrations
-    updated_yaml = yaml.safe_dump(config, default_flow_style=False, sort_keys=False)
-    return updated_yaml, True
+    return True
+
+
+def update_wait_for_pods_ready(config, enabled, timeout, backoff_limit):
+    changed = False
+    wait_config = config.get("waitForPodsReady") or {}
+
+    if enabled is not None and wait_config.get("enable") != enabled:
+        wait_config["enable"] = enabled
+        changed = True
+
+    if timeout:
+        if wait_config.get("timeout") != timeout:
+            wait_config["timeout"] = timeout
+            changed = True
+
+    if backoff_limit is not None:
+        if wait_config.get("requeuingBackoffLimit") != backoff_limit:
+            wait_config["requeuingBackoffLimit"] = backoff_limit
+            changed = True
+
+    if changed:
+        config["waitForPodsReady"] = wait_config
+    return changed
 
 
 def sanitize_resource(resource):
@@ -117,9 +159,13 @@ def handler(event, context):
     configmap_name = os.environ.get("KUEUE_CONFIGMAP_NAME", DEFAULT_CONFIGMAP_NAME)
     deployment_name = os.environ.get("KUEUE_DEPLOYMENT_NAME", DEFAULT_DEPLOYMENT_NAME)
     frameworks = parse_frameworks(os.environ.get("EXTERNAL_FRAMEWORKS", ""))
+    wait_enabled = parse_bool(os.environ.get("WAIT_FOR_PODS_READY_ENABLED", ""))
+    wait_timeout = os.environ.get("WAIT_FOR_PODS_READY_TIMEOUT", "").strip()
+    wait_backoff = parse_int(os.environ.get("WAIT_FOR_PODS_READY_REQUEUE_BACKOFF_LIMIT", ""))
 
-    if not frameworks:
-        cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Message": "No frameworks specified"})
+    has_wait_settings = wait_enabled is not None or wait_timeout or wait_backoff is not None
+    if not frameworks and not has_wait_settings:
+        cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Message": "No config updates requested"})
         return
 
     eks = boto3.client("eks")
@@ -152,11 +198,17 @@ def handler(event, context):
         cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Message": "No config YAML found"})
         return
 
-    updated_yaml, changed = update_external_frameworks(data.get(config_key, ""), frameworks)
+    config = yaml.safe_load(data.get(config_key, "")) or {}
+    changed = False
+    if frameworks:
+        changed = merge_external_frameworks(config, frameworks) or changed
+    if has_wait_settings:
+        changed = update_wait_for_pods_ready(config, wait_enabled, wait_timeout, wait_backoff) or changed
     if not changed:
-        cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Message": "externalFrameworks already set"})
+        cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Message": "Kueue config already up to date"})
         return
 
+    updated_yaml = yaml.safe_dump(config, default_flow_style=False, sort_keys=False)
     configmap["data"][config_key] = updated_yaml
     sanitize_resource(configmap)
     status, resp = request(
@@ -201,5 +253,5 @@ def handler(event, context):
         event,
         context,
         cfnresponse.SUCCESS,
-        {"Message": "externalFrameworks updated", "ConfigKey": config_key},
+        {"Message": "Kueue config updated", "ConfigKey": config_key},
     )

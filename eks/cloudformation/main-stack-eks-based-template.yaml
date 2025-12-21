@@ -31,6 +31,15 @@ Metadata:
           - KueueResourceFlavorPrefix
           - KueueClusterQueueName
           - KueueLocalQueueName
+          - EnableKueueAzRotationController
+          - KueueAzRotationImage
+          - KueueAzRotationNamespace
+          - KueueAzRotationServiceAccount
+          - KueueAzRotationLogLevel
+          - KueueAzRotationMaxRotations
+          - KueueAzRotationEvictionReason
+          - KueueWaitForPodsReadyTimeout
+          - KueueWaitForPodsReadyRequeueBackoffLimit
           - TieredStorageConfig
           - TieredKVCacheConfig
       - Label:
@@ -354,6 +363,24 @@ Metadata:
         default: Kueue ClusterQueue name
       KueueLocalQueueName:
         default: Kueue LocalQueue name
+      EnableKueueAzRotationController:
+        default: Enable Kueue AZ rotation controller
+      KueueAzRotationImage:
+        default: Kueue AZ rotation controller image
+      KueueAzRotationNamespace:
+        default: Kueue AZ rotation controller namespace
+      KueueAzRotationServiceAccount:
+        default: Kueue AZ rotation controller service account
+      KueueAzRotationLogLevel:
+        default: Kueue AZ rotation controller log level
+      KueueAzRotationMaxRotations:
+        default: Kueue AZ rotation max attempts
+      KueueAzRotationEvictionReason:
+        default: Kueue eviction reason to trigger rotation
+      KueueWaitForPodsReadyTimeout:
+        default: Kueue waitForPodsReady timeout
+      KueueWaitForPodsReadyRequeueBackoffLimit:
+        default: Kueue waitForPodsReady requeue backoff limit
       TieredStorageConfig:
         default: Tiered Storage Configuration
       TieredKVCacheConfig:
@@ -1138,6 +1165,45 @@ Parameters:
     Type: String
     Default: nemo-az-localqueue
     Description: Name of the Kueue LocalQueue created in each user namespace
+  EnableKueueAzRotationController:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable the AZ rotation controller for Kueue workloads
+  KueueAzRotationImage:
+    Type: String
+    Default: ''
+    Description: Container image URI for the AZ rotation controller
+  KueueAzRotationNamespace:
+    Type: String
+    Default: kueue-system
+    Description: Namespace for the AZ rotation controller deployment
+  KueueAzRotationServiceAccount:
+    Type: String
+    Default: nemo-az-rotation-controller
+    Description: Service account name for the AZ rotation controller
+  KueueAzRotationLogLevel:
+    Type: String
+    Default: INFO
+    Description: Log level for the AZ rotation controller
+  KueueAzRotationMaxRotations:
+    Type: Number
+    Default: 0
+    Description: Maximum rotation attempts per workload (0 = auto)
+  KueueAzRotationEvictionReason:
+    Type: String
+    Default: PodsReadyTimeout
+    Description: Kueue eviction reason that triggers rotation
+  KueueWaitForPodsReadyTimeout:
+    Type: String
+    Default: 20m
+    Description: Kueue waitForPodsReady timeout duration
+  KueueWaitForPodsReadyRequeueBackoffLimit:
+    Type: Number
+    Default: 1
+    Description: Kueue waitForPodsReady requeue backoff limit
   CreateFsxStack:
     Type: String
     Default: 'true'
@@ -1350,6 +1416,29 @@ Conditions:
       - Fn::Equals:
           - Ref: EnableKueueAzPlacementResources
           - 'true'
+  HasKueueAzRotationImage:
+    Fn::Not:
+      - Fn::Equals:
+          - Ref: KueueAzRotationImage
+          - ''
+  EnableKueueAzRotationControllerCondition:
+    Fn::And:
+      - Fn::Equals:
+          - Ref: CreateEKSClusterStack
+          - 'true'
+      - Fn::Equals:
+          - Ref: CreateHyperPodClusterStack
+          - 'true'
+      - Fn::Equals:
+          - Ref: CreateTaskGovernanceClusterPolicyStack
+          - 'true'
+      - Fn::Equals:
+          - Ref: EnableKueueAzPlacementResources
+          - 'true'
+      - Fn::Equals:
+          - Ref: EnableKueueAzRotationController
+          - 'true'
+      - Condition: HasKueueAzRotationImage
 Mappings:
   AMPRegionMapping:
     us-east-1:
@@ -2181,6 +2270,21 @@ Resources:
             - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
         ExternalFrameworks:
           Ref: KueueExternalFrameworks
+        WaitForPodsReadyEnabled:
+          Fn::If:
+            - EnableKueueAzRotationControllerCondition
+            - 'true'
+            - ''
+        WaitForPodsReadyTimeout:
+          Fn::If:
+            - EnableKueueAzRotationControllerCondition
+            - Ref: KueueWaitForPodsReadyTimeout
+            - ''
+        WaitForPodsReadyRequeueBackoffLimit:
+          Fn::If:
+            - EnableKueueAzRotationControllerCondition
+            - Ref: KueueWaitForPodsReadyRequeueBackoffLimit
+            - ''
     DependsOn:
       - TaskGovernanceClusterPolicyStack
     Metadata:
@@ -2221,6 +2325,11 @@ Resources:
           Ref: KueueClusterQueueName
         KueueLocalQueueName:
           Ref: KueueLocalQueueName
+        EnablePerAzQueues:
+          Fn::If:
+            - EnableKueueAzRotationControllerCondition
+            - 'true'
+            - 'false'
         FsxAvailabilityZoneId:
           Ref: FsxAvailabilityZoneId
         FsxSubnetId:
@@ -2230,6 +2339,59 @@ Resources:
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/KueueAzPlacementResourcesStack
     Condition: EnableKueueAzPlacementResourcesCondition
+  KueueAzRotationControllerStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL:
+        Fn::If:
+          - CustomBucketCondition
+          - Fn::Sub: >-
+              https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/kueue-az-rotation-controller-template.yaml
+          - Fn::Sub: >-
+              https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/kueue-az-rotation-controller-template.yaml
+      Parameters:
+        ResourceNamePrefix:
+          Ref: ResourceNamePrefix
+        EKSClusterName:
+          Fn::If:
+            - CreateEKSClusterStackCondition
+            - Fn::GetAtt:
+                - EKSClusterStack
+                - Outputs.EKSClusterName
+            - Ref: EKSClusterName
+        CustomResourceS3Bucket:
+          Fn::If:
+            - CustomBucketCondition
+            - Ref: CustomBucketName
+            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
+        EksAvailabilityZones:
+          Ref: EksAvailabilityZones
+        UserNamespaces:
+          Ref: UserNamespaces
+        KueueLocalQueueName:
+          Ref: KueueLocalQueueName
+        FsxAvailabilityZoneId:
+          Ref: FsxAvailabilityZoneId
+        FsxSubnetId:
+          Ref: FsxSubnetId
+        KueueAzRotationImage:
+          Ref: KueueAzRotationImage
+        KueueAzRotationNamespace:
+          Ref: KueueAzRotationNamespace
+        KueueAzRotationServiceAccount:
+          Ref: KueueAzRotationServiceAccount
+        KueueAzRotationLogLevel:
+          Ref: KueueAzRotationLogLevel
+        KueueAzRotationMaxRotations:
+          Ref: KueueAzRotationMaxRotations
+        KueueAzRotationEvictionReason:
+          Ref: KueueAzRotationEvictionReason
+    DependsOn:
+      - TaskGovernanceClusterPolicyStack
+      - KueueAzPlacementResourcesStack
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/KueueAzRotationControllerStack
+    Condition: EnableKueueAzRotationControllerCondition
   FsxStack:
     Type: AWS::CloudFormation::Stack
     Properties:

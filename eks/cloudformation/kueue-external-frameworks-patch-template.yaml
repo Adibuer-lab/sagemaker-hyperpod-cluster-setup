@@ -24,6 +24,18 @@ Parameters:
   ExternalFrameworks:
     Type: String
     Default: HyperPodPytorchJob.v1.sagemaker.amazonaws.com
+  WaitForPodsReadyEnabled:
+    Type: String
+    Default: ''
+    Description: Enable waitForPodsReady in Kueue controller config
+  WaitForPodsReadyTimeout:
+    Type: String
+    Default: ''
+    Description: waitForPodsReady timeout duration (e.g., 20m)
+  WaitForPodsReadyRequeueBackoffLimit:
+    Type: String
+    Default: ''
+    Description: waitForPodsReady requeue backoff limit
 
 Resources:
   KueueExternalFrameworksPatchRole:
@@ -87,6 +99,12 @@ Resources:
             Ref: KueueDeploymentName
           EXTERNAL_FRAMEWORKS:
             Ref: ExternalFrameworks
+          WAIT_FOR_PODS_READY_ENABLED:
+            Ref: WaitForPodsReadyEnabled
+          WAIT_FOR_PODS_READY_TIMEOUT:
+            Ref: WaitForPodsReadyTimeout
+          WAIT_FOR_PODS_READY_REQUEUE_BACKOFF_LIMIT:
+            Ref: WaitForPodsReadyRequeueBackoffLimit
       FunctionName:
         Fn::Sub: ${ResourceNamePrefix}-kueue-external-frameworks-patch
       Handler: lambda_function.handler

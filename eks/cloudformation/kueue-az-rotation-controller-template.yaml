@@ -1,4 +1,4 @@
-Description: Create Kueue AZ placement resources (ResourceFlavors, ClusterQueue, LocalQueues)
+Description: Deploy AZ rotation controller for Kueue workloads
 
 Parameters:
   ResourceNamePrefix:
@@ -15,42 +15,47 @@ Parameters:
     Description: Lambda layer with kubectl and aws-iam-authenticator
   FunctionS3Key:
     Type: String
-    Default: resources/artifacts/kueue-az-placement-lambda-function.zip
+    Default: resources/artifacts/kueue-az-rotation-controller-lambda-function.zip
   EksAvailabilityZones:
     Type: String
     Description: Comma-separated list of EKS-eligible AZ names
   UserNamespaces:
     Type: String
     Description: Comma-separated list of user workload namespaces
-  KueueResourceFlavorPrefix:
-    Type: String
-    Default: nemo-az
-  KueueClusterQueueName:
-    Type: String
-    Default: nemo-az-clusterqueue
   KueueLocalQueueName:
     Type: String
     Default: nemo-az-localqueue
-  EnablePerAzQueues:
-    Type: String
-    Default: 'false'
-    AllowedValues:
-      - 'true'
-      - 'false'
-    Description: Create per-AZ ClusterQueues and LocalQueues for rotation
   FsxAvailabilityZoneId:
     Type: String
     Default: ''
   FsxSubnetId:
     Type: String
     Default: ''
+  KueueAzRotationImage:
+    Type: String
+    Description: Container image URI for the AZ rotation controller
+  KueueAzRotationNamespace:
+    Type: String
+    Default: kueue-system
+  KueueAzRotationServiceAccount:
+    Type: String
+    Default: nemo-az-rotation-controller
+  KueueAzRotationLogLevel:
+    Type: String
+    Default: INFO
+  KueueAzRotationMaxRotations:
+    Type: Number
+    Default: 0
+  KueueAzRotationEvictionReason:
+    Type: String
+    Default: PodsReadyTimeout
 
 Resources:
-  KueueAzPlacementRole:
+  KueueAzRotationControllerRole:
     Type: AWS::IAM::Role
     Properties:
       RoleName:
-        Fn::Sub: ${ResourceNamePrefix}-kueue-az-placement-role
+        Fn::Sub: ${ResourceNamePrefix}-kueue-az-rotation-controller-role
       AssumeRolePolicyDocument:
         Statement:
           - Action: sts:AssumeRole
@@ -75,7 +80,7 @@ Resources:
                 Resource: '*'
           PolicyName: EKSAccess
 
-  KueueAzPlacementAccessEntry:
+  KueueAzRotationControllerAccessEntry:
     Type: AWS::EKS::AccessEntry
     Properties:
       AccessPolicies:
@@ -86,10 +91,10 @@ Resources:
         Ref: EKSClusterName
       PrincipalArn:
         Fn::GetAtt:
-          - KueueAzPlacementRole
+          - KueueAzRotationControllerRole
           - Arn
 
-  KueueAzPlacementLayer:
+  KueueAzRotationControllerLayer:
     Type: AWS::Lambda::LayerVersion
     Properties:
       CompatibleArchitectures:
@@ -106,9 +111,9 @@ Resources:
           Ref: LayerS3Key
       Description: Lambda layer for kubectl and aws-iam-authenticator
       LayerName:
-        Fn::Sub: ${ResourceNamePrefix}-kueue-az-placement-layer
+        Fn::Sub: ${ResourceNamePrefix}-kueue-az-rotation-controller-layer
 
-  KueueAzPlacementFunction:
+  KueueAzRotationControllerFunction:
     Type: AWS::Lambda::Function
     Properties:
       Code:
@@ -124,44 +129,50 @@ Resources:
             Ref: EksAvailabilityZones
           USER_NAMESPACES:
             Ref: UserNamespaces
-          KUEUE_FLAVOR_PREFIX:
-            Ref: KueueResourceFlavorPrefix
-          KUEUE_CLUSTER_QUEUE_NAME:
-            Ref: KueueClusterQueueName
           KUEUE_LOCAL_QUEUE_NAME:
             Ref: KueueLocalQueueName
-          ENABLE_PER_AZ_QUEUES:
-            Ref: EnablePerAzQueues
           FSX_AVAILABILITY_ZONE_ID:
             Ref: FsxAvailabilityZoneId
           FSX_SUBNET_ID:
             Ref: FsxSubnetId
+          ROTATION_IMAGE:
+            Ref: KueueAzRotationImage
+          ROTATION_NAMESPACE:
+            Ref: KueueAzRotationNamespace
+          ROTATION_SERVICE_ACCOUNT:
+            Ref: KueueAzRotationServiceAccount
+          ROTATION_LOG_LEVEL:
+            Ref: KueueAzRotationLogLevel
+          ROTATION_MAX_ROTATIONS:
+            Ref: KueueAzRotationMaxRotations
+          ROTATION_EVICTION_REASON:
+            Ref: KueueAzRotationEvictionReason
           PATH: /opt/python/bin:/var/lang/bin:/usr/local/bin:/usr/bin/:/bin
           KUBECONFIG: /tmp/.kube/config
           LD_LIBRARY_PATH: /opt/python/lib
       FunctionName:
-        Fn::Sub: ${ResourceNamePrefix}-kueue-az-placement
+        Fn::Sub: ${ResourceNamePrefix}-kueue-az-rotation-controller
       Handler: lambda_function.handler
       Layers:
-        - Ref: KueueAzPlacementLayer
+        - Ref: KueueAzRotationControllerLayer
       Role:
         Fn::GetAtt:
-          - KueueAzPlacementRole
+          - KueueAzRotationControllerRole
           - Arn
       Runtime: python3.12
       Timeout: 300
     DependsOn:
-      - KueueAzPlacementAccessEntry
+      - KueueAzRotationControllerAccessEntry
 
-  KueueAzPlacementCustomResource:
+  KueueAzRotationControllerCustomResource:
     Type: AWS::CloudFormation::CustomResource
     Properties:
       ServiceToken:
         Fn::GetAtt:
-          - KueueAzPlacementFunction
+          - KueueAzRotationControllerFunction
           - Arn
 
 Outputs:
-  KueueAzPlacementComplete:
-    Description: Kueue AZ placement resources created
+  KueueAzRotationControllerDeployed:
+    Description: AZ rotation controller deployed
     Value: true

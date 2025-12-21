@@ -194,6 +194,11 @@ Resources:
               Value: controller-manager
             - Key: app.kubernetes.io/name
               Value: kueue
+        # AZ rotation controller
+        - Namespace: kueue-system
+          Labels:
+            - Key: app.kubernetes.io/name
+              Value: nemo-az-rotation-controller
     Metadata:
       aws:cdk:path: EksCfnTemplate/FargateProfileControllers
 
