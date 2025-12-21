@@ -42,7 +42,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName:
-        Fn::Sub: ${ResourceNamePrefix}-kueue-external-frameworks-patch-role
+        Fn::Sub: ${ResourceNamePrefix}-kue-ex-patch
       AssumeRolePolicyDocument:
         Statement:
           - Action: sts:AssumeRole
