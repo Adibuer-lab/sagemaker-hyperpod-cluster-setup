@@ -1439,6 +1439,20 @@ Conditions:
           - Ref: EnableKueueAzRotationController
           - 'true'
       - Condition: HasKueueAzRotationImage
+  TaskGovernanceMetricLevelDisabled:
+    Fn::Equals:
+      - Ref: TaskGovernanceMetricLevel
+      - 'DISABLED'
+  EnableTaskGovernanceMetricsCondition:
+    Fn::And:
+      - Fn::Equals:
+          - Ref: CreateTaskGovernanceClusterPolicyStack
+          - 'true'
+      - Condition: TaskGovernanceMetricLevelDisabled
+  EnableObservabilityWithHyperPodCondition:
+    Fn::And:
+      - Condition: EnableObservabilityFeatureCondition
+      - Condition: CreateHyperPodClusterStackCondition
 Mappings:
   AMPRegionMapping:
     us-east-1:
@@ -2161,6 +2175,80 @@ Resources:
           - KarpenterSetupFunction
           - Arn
 
+  HyperPodAssociationWaiterRole:
+    Type: AWS::IAM::Role
+    Condition: EnableObservabilityWithHyperPodCondition
+    Properties:
+      RoleName:
+        Fn::Sub: ${ResourceNamePrefix}-hp-association-waiter-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: HyperPodAssociationWaiterPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sagemaker:DescribeCluster
+                Resource:
+                  Fn::GetAtt:
+                    - HyperPodClusterStack
+                    - Outputs.HyperPodClusterArn
+
+  HyperPodAssociationWaiterFunction:
+    Type: AWS::Lambda::Function
+    Condition: EnableObservabilityWithHyperPodCondition
+    Properties:
+      FunctionName:
+        Fn::Sub: ${ResourceNamePrefix}-hp-association-waiter
+      Runtime: python3.12
+      Handler: lambda_function.handler
+      Timeout: 900
+      MemorySize: 256
+      Role:
+        Fn::GetAtt:
+          - HyperPodAssociationWaiterRole
+          - Arn
+      Code:
+        S3Bucket:
+          Fn::If:
+            - CustomBucketCondition
+            - Ref: CustomBucketName
+            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
+        S3Key: resources/artifacts/hyperpod-association-waiter-lambda-function.zip
+
+  HyperPodAssociationWaiter:
+    Type: Custom::HyperPodAssociationWaiter
+    Condition: EnableObservabilityWithHyperPodCondition
+    DependsOn:
+      - HyperPodClusterStack
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - HyperPodAssociationWaiterFunction
+          - Arn
+      HyperPodClusterName:
+        Fn::GetAtt:
+          - HyperPodClusterStack
+          - Outputs.HyperPodClusterName
+      EksClusterArn:
+        Fn::If:
+          - CreateEKSClusterStackCondition
+          - Fn::GetAtt:
+              - EKSClusterStack
+              - Outputs.EKSClusterArn
+          - Fn::Sub: arn:aws:eks:${AWS::Region}:${AWS::AccountId}:cluster/${EKSClusterName}
+      WaitTimeoutSeconds: 900
+      PollIntervalSeconds: 15
+
   CertManagerStack:
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -2702,6 +2790,7 @@ Resources:
                     Ref: ResourceNamePrefix
     DependsOn:
       - CertManagerStack
+      - HyperPodAssociationWaiter
       - HyperPodClusterStack
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/InferenceOperatorMainStack
@@ -2754,7 +2843,10 @@ Resources:
         TrainingMetricLevel:
           Ref: TrainingMetricLevel
         TaskGovernanceMetricLevel:
-          Ref: TaskGovernanceMetricLevel
+          Fn::If:
+            - EnableTaskGovernanceMetricsCondition
+            - BASIC
+            - Ref: TaskGovernanceMetricLevel
         ScalingMetricLevel:
           Ref: ScalingMetricLevel
         NetworkMetricLevel:
