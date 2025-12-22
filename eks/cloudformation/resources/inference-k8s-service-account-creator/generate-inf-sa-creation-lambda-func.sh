@@ -18,7 +18,11 @@ rm -f "$ARTIFACTS_DIR/inf-sa-creation-lambda-function.zip"
 cd package
 # Remove files not needed for Lambda (python3.12 on Linux x86_64)
 find . -name "*cpython-311*" -delete
+find . -name "*cpython-39*" -delete
 find . -name "*darwin*" -delete
+find . -name "__pycache__" -type d -prune -exec rm -rf {} +
+find . -name "*.pyc" -delete
+find . -name "*.dist-info" -type d -prune -exec rm -rf {} +
 zip -r "$ARTIFACTS_DIR/inf-sa-creation-lambda-function.zip" .
 cd ..
 
