@@ -1474,9 +1474,12 @@ Conditions:
           - Fn::Equals:
               - Ref: EnableObservabilityFeature
               - 'true'
-  EnableBootstrapWorkloadCondition:
+  EnableHyperPodNodeWaiterCondition:
     Fn::And:
       - Condition: KarpenterEnabledCondition
+      - Fn::Equals:
+          - Ref: CreateHyperPodClusterStack
+          - 'true'
       - Fn::Or:
           - Fn::Equals:
               - Ref: CreateTaskGovernanceClusterPolicyStack
@@ -1484,12 +1487,6 @@ Conditions:
           - Fn::Equals:
               - Ref: EnableObservabilityFeature
               - 'true'
-  EnableHyperPodNodeWaiterCondition:
-    Fn::And:
-      - Condition: EnableBootstrapWorkloadCondition
-      - Fn::Equals:
-          - Ref: CreateHyperPodClusterStack
-          - 'true'
 Mappings:
   AMPRegionMapping:
     us-east-1:
@@ -2319,60 +2316,11 @@ Resources:
       WaitTimeoutSeconds: 900
       PollIntervalSeconds: 15
 
-  HyperPodBootstrapWorkloadFunction:
-    Type: AWS::Lambda::Function
-    Condition: EnableBootstrapWorkloadCondition
-    DependsOn: KarpenterSetupAccessEntry
-    Properties:
-      FunctionName:
-        Fn::Sub: ${ResourceNamePrefix}-hp-bootstrap-workload
-      Runtime: python3.12
-      Handler: lambda_function.handler
-      Timeout: 300
-      MemorySize: 256
-      Role:
-        Fn::GetAtt:
-          - KarpenterSetupRole
-          - Arn
-      Code:
-        S3Bucket:
-          Fn::If:
-            - CustomBucketCondition
-            - Ref: CustomBucketName
-            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
-        S3Key: resources/artifacts/hyperpod-bootstrap-workload-lambda-function.zip
-
-  HyperPodBootstrapWorkload:
-    Type: Custom::HyperPodBootstrapWorkload
-    Condition: EnableBootstrapWorkloadCondition
-    DependsOn:
-      - KarpenterSetup
-      - HyperPodAssociationWaiter
-    Properties:
-      ServiceToken:
-        Fn::GetAtt:
-          - HyperPodBootstrapWorkloadFunction
-          - Arn
-      EksClusterName:
-        Fn::If:
-          - CreateEKSClusterStackCondition
-          - Fn::GetAtt:
-              - EKSClusterStack
-              - Outputs.EKSClusterName
-          - Ref: EKSClusterName
-      Namespace: default
-      DeploymentName: hyperpod-bootstrap
-      Image: public.ecr.aws/eks-distro/kubernetes/pause:3.9
-      CpuRequest: 100m
-      MemoryRequest: 128Mi
-      NodeSelectorKey: node-role
-      NodeSelectorValue: system
-
   HyperPodNodeWaiter:
     Type: Custom::HyperPodNodeWaiter
     Condition: EnableHyperPodNodeWaiterCondition
     DependsOn:
-      - HyperPodBootstrapWorkload
+      - HyperPodAssociationWaiter
       - HyperPodNodeWaiterAccessEntry
     Properties:
       ServiceToken:
@@ -2402,48 +2350,6 @@ Resources:
       MinNodeCount: 1
       WaitTimeoutSeconds: 1800
       PollIntervalSeconds: 30
-
-  HyperPodBootstrapCleanupAfterTaskGovernance:
-    Type: Custom::HyperPodBootstrapCleanup
-    Condition: EnableTaskGovernanceClusterPolicyCondition
-    DependsOn:
-      - TaskGovernanceClusterPolicyStack
-    Properties:
-      ServiceToken:
-        Fn::GetAtt:
-          - HyperPodBootstrapWorkloadFunction
-          - Arn
-      EksClusterName:
-        Fn::If:
-          - CreateEKSClusterStackCondition
-          - Fn::GetAtt:
-              - EKSClusterStack
-              - Outputs.EKSClusterName
-          - Ref: EKSClusterName
-      Namespace: default
-      DeploymentName: hyperpod-bootstrap
-      CleanupOnly: true
-
-  HyperPodBootstrapCleanupAfterObservability:
-    Type: Custom::HyperPodBootstrapCleanup
-    Condition: EnableObservabilityFeatureCondition
-    DependsOn:
-      - ObservabilityStack
-    Properties:
-      ServiceToken:
-        Fn::GetAtt:
-          - HyperPodBootstrapWorkloadFunction
-          - Arn
-      EksClusterName:
-        Fn::If:
-          - CreateEKSClusterStackCondition
-          - Fn::GetAtt:
-              - EKSClusterStack
-              - Outputs.EKSClusterName
-          - Ref: EKSClusterName
-      Namespace: default
-      DeploymentName: hyperpod-bootstrap
-      CleanupOnly: true
 
   CertManagerStack:
     Type: AWS::CloudFormation::Stack

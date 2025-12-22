@@ -34,8 +34,9 @@ run cluster-policy generate-cluster-policy-lambda-zip.sh
 run coredns-restart generate-coredns-restart-lambda-func.sh
 run workspace-templates generate-workspace-templates-lambda-func.sh
 run karpenter-setup generate-karpenter-setup-lambda-func.sh
-run hyperpod-bootstrap-workload generate-hyperpod-bootstrap-workload-lambda-func.sh
 run hyperpod-association-waiter generate-hyperpod-association-waiter-lambda-func.sh
+run cfn-stepfunction-starter generate-cfn-stepfunction-starter-lambda-func.sh
+run cfn-response-sender generate-cfn-response-sender-lambda-func.sh
 run kueue-external-frameworks-patch generate-kueue-external-frameworks-patch-lambda-func.sh
 run kueue-az-placement generate-kueue-az-placement-lambda-func.sh
 run kueue-az-rotation-controller generate-kueue-az-rotation-controller-lambda-func.sh

@@ -1,6 +1,6 @@
 import base64
 import boto3
-import cfnresponse
+from botocore.exceptions import ClientError
 import datetime
 import json
 import os
@@ -146,27 +146,17 @@ def _endpoints_ready(request, namespace, service_name):
     return ok, ready, ports_ok, detail
 
 
-def _wait_for_kueue_ready(request, namespace, deployment_name, max_attempts=30, delay_seconds=10):
-    for attempt in range(1, max_attempts + 1):
-        try:
-            dep_ready, dep_detail = _deployment_ready(request, namespace, deployment_name)
-            slice_ready, _, _, slice_detail = _endpointslice_ready(request, namespace, DEFAULT_WEBHOOK_SERVICE)
-            eps_ready, _, _, eps_detail = _endpoints_ready(request, namespace, DEFAULT_WEBHOOK_SERVICE)
-            webhook_ready = slice_ready or eps_ready
-            if dep_ready and webhook_ready:
-                print(f"Kueue ready (attempt {attempt})")
-                return True
-            print(
-                "Kueue not ready "
-                f"(deployment_ready={dep_ready} {dep_detail}, "
-                f"endpointslice_ready={slice_ready} {slice_detail}, "
-                f"endpoints_ready={eps_ready} {eps_detail}) "
-                f"(attempt {attempt}/{max_attempts})"
-            )
-        except Exception as exc:
-            print(f"Error checking Kueue readiness (attempt {attempt}/{max_attempts}): {exc}")
-        time.sleep(delay_seconds)
-    raise Exception("Kueue webhook not ready after waiting")
+def _check_kueue_ready_once(request, namespace, deployment_name):
+    dep_ready, dep_detail = _deployment_ready(request, namespace, deployment_name)
+    slice_ready, _, _, slice_detail = _endpointslice_ready(request, namespace, DEFAULT_WEBHOOK_SERVICE)
+    eps_ready, _, _, eps_detail = _endpoints_ready(request, namespace, DEFAULT_WEBHOOK_SERVICE)
+    webhook_ready = slice_ready or eps_ready
+    detail = (
+        f"deployment_ready={dep_ready} {dep_detail}, "
+        f"endpointslice_ready={slice_ready} {slice_detail}, "
+        f"endpoints_ready={eps_ready} {eps_detail}"
+    )
+    return dep_ready and webhook_ready, detail
 
 
 def _request_with_retry(request, method, path, body=None, content_type="application/yaml", max_attempts=6):
@@ -286,10 +276,26 @@ def sanitize_resource(resource):
     return resource
 
 
+def _build_response(status, reason, data, attempt, max_attempts, delay_seconds):
+    return {
+        "Status": status,
+        "Reason": reason,
+        "Data": data or {},
+        "Attempt": attempt,
+        "MaxAttempts": max_attempts,
+        "DelaySeconds": delay_seconds,
+    }
+
+
 def handler(event, context):
-    if event["RequestType"] == "Delete":
-        cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
-        return
+    request_type = event.get("RequestType") or "Create"
+    attempt = int(event.get("Attempt") or 0)
+    max_attempts = int(event.get("MaxAttempts") or os.environ.get("MAX_ATTEMPTS", "45"))
+    delay_seconds = int(event.get("DelaySeconds") or os.environ.get("DELAY_SECONDS", "60"))
+    next_attempt = attempt + 1
+
+    if request_type == "Delete":
+        return _build_response("SUCCESS", "Delete skipped", {}, next_attempt, max_attempts, delay_seconds)
 
     cluster_name = os.environ["EKS_CLUSTER_NAME"]
     namespace = os.environ.get("KUEUE_NAMESPACE", DEFAULT_NAMESPACE)
@@ -302,41 +308,89 @@ def handler(event, context):
 
     has_wait_settings = wait_enabled is not None or wait_timeout or wait_backoff is not None
     if not frameworks and not has_wait_settings:
-        cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Message": "No config updates requested"})
-        return
+        return _build_response(
+            "SUCCESS",
+            "No config updates requested",
+            {"Message": "No config updates requested"},
+            next_attempt,
+            max_attempts,
+            delay_seconds,
+        )
 
-    eks = boto3.client("eks")
-    cluster = eks.describe_cluster(name=cluster_name)["cluster"]
+    try:
+        eks = boto3.client("eks")
+        cluster = eks.describe_cluster(name=cluster_name)["cluster"]
+    except ClientError as exc:
+        code = (exc.response or {}).get("Error", {}).get("Code", "")
+        if code in ("ResourceNotFoundException", "ResourceNotFound"):
+            return _build_response(
+                "NOT_READY",
+                f"EKS cluster {cluster_name} not found",
+                {},
+                next_attempt,
+                max_attempts,
+                delay_seconds,
+            )
+        return _build_response("FAILED", str(exc), {}, next_attempt, max_attempts, delay_seconds)
+
     endpoint = cluster["endpoint"]
     ca_data = cluster["certificateAuthority"]["data"]
-
     token = get_eks_token(cluster_name)
 
     def request(method, path, body=None, content_type="application/yaml"):
         nonlocal token
-        for attempt in range(5):
+        for attempt_idx in range(5):
             status, resp = k8s_request(endpoint, ca_data, token, method, path, body, content_type)
-            if status != 401 or attempt == 4:
+            if status != 401 or attempt_idx == 4:
                 return status, resp
             token = get_eks_token(cluster_name)
         return status, resp
 
-    _wait_for_kueue_ready(request, namespace, deployment_name)
+    ready, detail = _check_kueue_ready_once(request, namespace, deployment_name)
+    if not ready:
+        return _build_response(
+            "NOT_READY",
+            f"Kueue not ready: {detail}",
+            {},
+            next_attempt,
+            max_attempts,
+            delay_seconds,
+        )
 
     status, resp = _request_with_retry(
         request, "GET", f"/api/v1/namespaces/{namespace}/configmaps/{configmap_name}"
     )
     if status == 404:
-        raise Exception("Kueue configmap not found after wait; Kueue is not ready or not installed")
+        return _build_response(
+            "NOT_READY",
+            "Kueue configmap not found",
+            {},
+            next_attempt,
+            max_attempts,
+            delay_seconds,
+        )
     if status != 200:
-        raise Exception(f"Failed to get configmap: {status} {resp}")
+        return _build_response(
+            "FAILED",
+            f"Failed to get configmap: {status} {resp}",
+            {},
+            next_attempt,
+            max_attempts,
+            delay_seconds,
+        )
 
     configmap = json.loads(resp)
     data = configmap.get("data") or {}
     config_key = select_config_key(data)
     if not config_key:
-        cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Message": "No config YAML found"})
-        return
+        return _build_response(
+            "SUCCESS",
+            "No config YAML found",
+            {"Message": "No config YAML found"},
+            next_attempt,
+            max_attempts,
+            delay_seconds,
+        )
 
     config = yaml.safe_load(data.get(config_key, "")) or {}
     changed = False
@@ -345,8 +399,14 @@ def handler(event, context):
     if has_wait_settings:
         changed = update_wait_for_pods_ready(config, wait_enabled, wait_timeout, wait_backoff) or changed
     if not changed:
-        cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Message": "Kueue config already up to date"})
-        return
+        return _build_response(
+            "SUCCESS",
+            "Kueue config already up to date",
+            {"Message": "Kueue config already up to date"},
+            next_attempt,
+            max_attempts,
+            delay_seconds,
+        )
 
     updated_yaml = yaml.safe_dump(config, default_flow_style=False, sort_keys=False)
     configmap["data"][config_key] = updated_yaml
@@ -359,9 +419,15 @@ def handler(event, context):
         content_type="application/json",
     )
     if status not in [200, 201]:
-        raise Exception(f"Failed to update configmap: {status} {resp}")
+        return _build_response(
+            "FAILED",
+            f"Failed to update configmap: {status} {resp}",
+            {},
+            next_attempt,
+            max_attempts,
+            delay_seconds,
+        )
 
-    # Restart kueue-controller-manager to pick up config changes
     status, resp = _request_with_retry(
         request,
         "GET",
@@ -390,11 +456,20 @@ def handler(event, context):
             content_type="application/json",
         )
         if status not in [200, 201]:
-            raise Exception(f"Failed to restart deployment: {status} {resp}")
+            return _build_response(
+                "FAILED",
+                f"Failed to restart deployment: {status} {resp}",
+                {},
+                next_attempt,
+                max_attempts,
+                delay_seconds,
+            )
 
-    cfnresponse.send(
-        event,
-        context,
-        cfnresponse.SUCCESS,
+    return _build_response(
+        "SUCCESS",
+        "Kueue config updated",
         {"Message": "Kueue config updated", "ConfigKey": config_key},
+        next_attempt,
+        max_attempts,
+        delay_seconds,
     )

@@ -1,5 +1,5 @@
 import boto3
-import cfnresponse
+from botocore.exceptions import ClientError
 import hashlib
 import json
 import os
@@ -224,6 +224,36 @@ def _endpoints_ready(namespace, service_name):
     return ok, ready, ports_ok, detail
 
 
+def _check_kueue_webhook():
+    controller_ready, controller_detail = _deployment_ready(
+        KUEUE_NAMESPACE, KUEUE_CONTROLLER_DEPLOYMENT
+    )
+    endpointslice_ready, _, _, endpointslice_detail = _endpointslice_ready(
+        KUEUE_NAMESPACE, KUEUE_WEBHOOK_SERVICE
+    )
+    endpoints_ready, _, _, endpoints_detail = _endpoints_ready(
+        KUEUE_NAMESPACE, KUEUE_WEBHOOK_SERVICE
+    )
+    webhook_ready = endpointslice_ready or endpoints_ready
+    detail = (
+        f"controller_ready={controller_ready} {controller_detail}, "
+        f"endpointslice_ready={endpointslice_ready} {endpointslice_detail}, "
+        f"endpoints_ready={endpoints_ready} {endpoints_detail}"
+    )
+    return controller_ready and webhook_ready, detail
+
+
+def _safe_setup_kubeconfig(cluster_name, region):
+    try:
+        _setup_kubeconfig(cluster_name, region)
+        return True, ""
+    except ClientError as exc:
+        code = (exc.response or {}).get("Error", {}).get("Code", "")
+        if code in ("ResourceNotFoundException", "ResourceNotFound"):
+            return False, f"EKS cluster {cluster_name} not found"
+        raise
+
+
 def _wait_for_kueue_webhook(max_attempts=30, delay_seconds=10):
     """Wait for Kueue controller to be available and webhook endpoints ready."""
     for attempt in range(1, max_attempts + 1):
@@ -382,8 +412,7 @@ def _build_local_queue(api_version, name, namespace, cluster_queue):
     }
 
 
-def _create_resources():
-    cluster_name = os.environ[CLUSTER_NAME_ENV]
+def _create_resources(api_version):
     region = os.environ.get(AWS_REGION_ENV, "us-east-1")
     az_list = _parse_csv(os.environ.get("EKS_AZ_NAMES", ""))
     namespaces = _parse_csv(os.environ.get("USER_NAMESPACES", ""))
@@ -406,9 +435,6 @@ def _create_resources():
     )
     enable_per_az = _bool_env(os.environ.get("ENABLE_PER_AZ_QUEUES", "false"))
 
-    _setup_kubeconfig(cluster_name, region)
-    api_version = _get_kueue_api_version_with_retry()
-    _wait_for_kueue_webhook()
 
     fsx_az_name = _resolve_fsx_az_name(fsx_subnet_id, fsx_az_id, region)
     ordered_azs = list(az_list)
@@ -535,16 +561,82 @@ def _delete_resources():
         _delete_resource("resourceflavor", name)
 
 
-def handler(event, context):
-    try:
-        request_type = event.get("RequestType")
-        if request_type == "Delete":
-            _delete_resources()
-            cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Status": "DELETED"})
-            return
+def _build_response(status, reason, data, attempt, max_attempts, delay_seconds):
+    return {
+        "Status": status,
+        "Reason": reason,
+        "Data": data or {},
+        "Attempt": attempt,
+        "MaxAttempts": max_attempts,
+        "DelaySeconds": delay_seconds,
+    }
 
-        data = _create_resources()
-        cfnresponse.send(event, context, cfnresponse.SUCCESS, data)
+
+def handler(event, context):
+    request_type = event.get("RequestType") or "Create"
+    attempt = int(event.get("Attempt") or 0)
+    max_attempts = int(event.get("MaxAttempts") or os.environ.get("MAX_ATTEMPTS", "45"))
+    delay_seconds = int(event.get("DelaySeconds") or os.environ.get("DELAY_SECONDS", "60"))
+    next_attempt = attempt + 1
+
+    cluster_name = os.environ[CLUSTER_NAME_ENV]
+    region = os.environ.get(AWS_REGION_ENV, "us-east-1")
+
+    if request_type == "Delete":
+        try:
+            ok, msg = _safe_setup_kubeconfig(cluster_name, region)
+            if not ok:
+                return _build_response("SUCCESS", msg, {}, next_attempt, max_attempts, delay_seconds)
+            _delete_resources()
+            return _build_response(
+                "SUCCESS",
+                "Deleted Kueue AZ placement resources",
+                {"Status": "DELETED"},
+                next_attempt,
+                max_attempts,
+                delay_seconds,
+            )
+        except Exception as exc:
+            print(f"Delete failed: {exc}")
+            return _build_response("FAILED", str(exc), {}, next_attempt, max_attempts, delay_seconds)
+
+    ok, msg = _safe_setup_kubeconfig(cluster_name, region)
+    if not ok:
+        return _build_response("NOT_READY", msg, {}, next_attempt, max_attempts, delay_seconds)
+
+    try:
+        api_version = _get_kueue_api_version_with_retry()
+    except Exception as exc:
+        return _build_response(
+            "NOT_READY",
+            f"Kueue API not ready: {exc}",
+            {},
+            next_attempt,
+            max_attempts,
+            delay_seconds,
+        )
+
+    ready, detail = _check_kueue_webhook()
+    if not ready:
+        return _build_response(
+            "NOT_READY",
+            f"Kueue not ready: {detail}",
+            {},
+            next_attempt,
+            max_attempts,
+            delay_seconds,
+        )
+
+    try:
+        data = _create_resources(api_version)
+        return _build_response(
+            "SUCCESS",
+            "Kueue AZ placement resources created",
+            data,
+            next_attempt,
+            max_attempts,
+            delay_seconds,
+        )
     except Exception as exc:
         print(f"Error: {exc}")
-        cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(exc)})
+        return _build_response("FAILED", str(exc), {}, next_attempt, max_attempts, delay_seconds)

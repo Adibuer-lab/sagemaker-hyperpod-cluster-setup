@@ -16,6 +16,18 @@ Parameters:
   FunctionS3Key:
     Type: String
     Default: resources/artifacts/kueue-az-placement-lambda-function.zip
+  StarterFunctionS3Key:
+    Type: String
+    Default: resources/artifacts/cfn-stepfunction-starter-lambda-function.zip
+  ResponseFunctionS3Key:
+    Type: String
+    Default: resources/artifacts/cfn-response-sender-lambda-function.zip
+  StepFunctionMaxAttempts:
+    Type: Number
+    Default: 45
+  StepFunctionDelaySeconds:
+    Type: Number
+    Default: 60
   EksAvailabilityZones:
     Type: String
     Description: Comma-separated list of EKS-eligible AZ names
@@ -153,12 +165,305 @@ Resources:
     DependsOn:
       - KueueAzPlacementAccessEntry
 
+  KueueAzPlacementResponseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Fn::Sub: ${ResourceNamePrefix}-kueue-az-placement-response-role
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: '2012-10-17'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  KueueAzPlacementResponseFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          Ref: CustomResourceS3Bucket
+        S3Key:
+          Ref: ResponseFunctionS3Key
+      FunctionName:
+        Fn::Sub: ${ResourceNamePrefix}-kueue-az-placement-response
+      Handler: lambda_function.handler
+      Role:
+        Fn::GetAtt:
+          - KueueAzPlacementResponseRole
+          - Arn
+      Runtime: python3.12
+      Timeout: 60
+      MemorySize: 256
+
+  KueueAzPlacementStateMachineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Fn::Sub: ${ResourceNamePrefix}-kueue-az-placement-sfn-role
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+        Version: '2012-10-17'
+      Policies:
+        - PolicyName: KueueAzPlacementStateMachinePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - Fn::GetAtt:
+                      - KueueAzPlacementFunction
+                      - Arn
+                  - Fn::GetAtt:
+                      - KueueAzPlacementResponseFunction
+                      - Arn
+
+  KueueAzPlacementStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    DependsOn:
+      - KueueAzPlacementFunction
+      - KueueAzPlacementResponseFunction
+    Properties:
+      StateMachineName:
+        Fn::Sub: ${ResourceNamePrefix}-kueue-az-placement-sfn
+      StateMachineType: STANDARD
+      RoleArn:
+        Fn::GetAtt:
+          - KueueAzPlacementStateMachineRole
+          - Arn
+      DefinitionString:
+        Fn::Sub: |
+          {
+            "Comment": "Kueue AZ placement orchestration",
+            "StartAt": "InvokeWorker",
+            "States": {
+              "InvokeWorker": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::lambda:invoke",
+                "Parameters": {
+                  "FunctionName": "${KueueAzPlacementFunction}",
+                  "Payload": {
+                    "RequestType.$": "$.RequestType",
+                    "Attempt.$": "$.Attempt",
+                    "MaxAttempts.$": "$.MaxAttempts",
+                    "DelaySeconds.$": "$.DelaySeconds"
+                  }
+                },
+                "ResultSelector": {
+                  "Status.$": "$.Payload.Status",
+                  "Reason.$": "$.Payload.Reason",
+                  "Data.$": "$.Payload.Data",
+                  "Attempt.$": "$.Payload.Attempt",
+                  "MaxAttempts.$": "$.Payload.MaxAttempts",
+                  "DelaySeconds.$": "$.Payload.DelaySeconds"
+                },
+                "ResultPath": "$.Worker",
+                "Next": "SetAttempt",
+                "Catch": [
+                  {
+                    "ErrorEquals": ["States.ALL"],
+                    "ResultPath": "$.WorkerError",
+                    "Next": "SendFailureFromException"
+                  }
+                ]
+              },
+              "SetAttempt": {
+                "Type": "Pass",
+                "Parameters": {
+                  "RequestType.$": "$.RequestType",
+                  "ResponseURL.$": "$.ResponseURL",
+                  "StackId.$": "$.StackId",
+                  "RequestId.$": "$.RequestId",
+                  "LogicalResourceId.$": "$.LogicalResourceId",
+                  "PhysicalResourceId.$": "$.PhysicalResourceId",
+                  "Attempt.$": "$.Worker.Attempt",
+                  "MaxAttempts.$": "$.Worker.MaxAttempts",
+                  "DelaySeconds.$": "$.Worker.DelaySeconds",
+                  "Worker.$": "$.Worker"
+                },
+                "ResultPath": "$",
+                "Next": "CheckStatus"
+              },
+              "CheckStatus": {
+                "Type": "Choice",
+                "Choices": [
+                  {
+                    "Variable": "$.Worker.Status",
+                    "StringEquals": "SUCCESS",
+                    "Next": "SendSuccess"
+                  },
+                  {
+                    "Variable": "$.Worker.Status",
+                    "StringEquals": "NOT_READY",
+                    "Next": "CheckAttempts"
+                  }
+                ],
+                "Default": "SendFailure"
+              },
+              "CheckAttempts": {
+                "Type": "Choice",
+                "Choices": [
+                  {
+                    "Variable": "$.Worker.Attempt",
+                    "NumericGreaterThanEqualsPath": "$.Worker.MaxAttempts",
+                    "Next": "SendTimeoutFailure"
+                  }
+                ],
+                "Default": "WaitBeforeRetry"
+              },
+              "WaitBeforeRetry": {
+                "Type": "Wait",
+                "SecondsPath": "$.Worker.DelaySeconds",
+                "Next": "InvokeWorker"
+              },
+              "SendSuccess": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::lambda:invoke",
+                "Parameters": {
+                  "FunctionName": "${KueueAzPlacementResponseFunction}",
+                  "Payload": {
+                    "Status": "SUCCESS",
+                    "Reason.$": "$.Worker.Reason",
+                    "Data.$": "$.Worker.Data",
+                    "ResponseURL.$": "$.ResponseURL",
+                    "StackId.$": "$.StackId",
+                    "RequestId.$": "$.RequestId",
+                    "LogicalResourceId.$": "$.LogicalResourceId",
+                    "PhysicalResourceId.$": "$.PhysicalResourceId"
+                  }
+                },
+                "End": true
+              },
+              "SendFailure": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::lambda:invoke",
+                "Parameters": {
+                  "FunctionName": "${KueueAzPlacementResponseFunction}",
+                  "Payload": {
+                    "Status": "FAILED",
+                    "Reason.$": "$.Worker.Reason",
+                    "Data.$": "$.Worker.Data",
+                    "ResponseURL.$": "$.ResponseURL",
+                    "StackId.$": "$.StackId",
+                    "RequestId.$": "$.RequestId",
+                    "LogicalResourceId.$": "$.LogicalResourceId",
+                    "PhysicalResourceId.$": "$.PhysicalResourceId"
+                  }
+                },
+                "End": true
+              },
+              "SendTimeoutFailure": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::lambda:invoke",
+                "Parameters": {
+                  "FunctionName": "${KueueAzPlacementResponseFunction}",
+                  "Payload": {
+                    "Status": "FAILED",
+                    "Reason": "Timed out waiting for Kueue readiness",
+                    "Data": {
+                      "Error": "Timed out waiting for Kueue readiness"
+                    },
+                    "ResponseURL.$": "$.ResponseURL",
+                    "StackId.$": "$.StackId",
+                    "RequestId.$": "$.RequestId",
+                    "LogicalResourceId.$": "$.LogicalResourceId",
+                    "PhysicalResourceId.$": "$.PhysicalResourceId"
+                  }
+                },
+                "End": true
+              },
+              "SendFailureFromException": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::lambda:invoke",
+                "Parameters": {
+                  "FunctionName": "${KueueAzPlacementResponseFunction}",
+                  "Payload": {
+                    "Status": "FAILED",
+                    "Reason.$": "$.WorkerError.Cause",
+                    "Data": {
+                      "Error.$": "$.WorkerError.Error"
+                    },
+                    "ResponseURL.$": "$.ResponseURL",
+                    "StackId.$": "$.StackId",
+                    "RequestId.$": "$.RequestId",
+                    "LogicalResourceId.$": "$.LogicalResourceId",
+                    "PhysicalResourceId.$": "$.PhysicalResourceId"
+                  }
+                },
+                "End": true
+              }
+            }
+          }
+
+  KueueAzPlacementStarterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Fn::Sub: ${ResourceNamePrefix}-kueue-az-placement-starter-role
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: '2012-10-17'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: KueueAzPlacementStartPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                Resource:
+                  Ref: KueueAzPlacementStateMachine
+
+  KueueAzPlacementStarterFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          Ref: CustomResourceS3Bucket
+        S3Key:
+          Ref: StarterFunctionS3Key
+      Environment:
+        Variables:
+          STATE_MACHINE_ARN:
+            Ref: KueueAzPlacementStateMachine
+          MAX_ATTEMPTS:
+            Ref: StepFunctionMaxAttempts
+          DELAY_SECONDS:
+            Ref: StepFunctionDelaySeconds
+      FunctionName:
+        Fn::Sub: ${ResourceNamePrefix}-kueue-az-placement-starter
+      Handler: lambda_function.handler
+      Role:
+        Fn::GetAtt:
+          - KueueAzPlacementStarterRole
+          - Arn
+      Runtime: python3.12
+      Timeout: 60
+      MemorySize: 256
+
   KueueAzPlacementCustomResource:
     Type: AWS::CloudFormation::CustomResource
+    DependsOn:
+      - KueueAzPlacementStateMachine
     Properties:
       ServiceToken:
         Fn::GetAtt:
-          - KueueAzPlacementFunction
+          - KueueAzPlacementStarterFunction
           - Arn
 
 Outputs:
