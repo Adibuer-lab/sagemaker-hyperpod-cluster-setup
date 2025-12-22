@@ -260,9 +260,17 @@ def update_wait_for_pods_ready(config, enabled, timeout, backoff_limit):
             wait_config["timeout"] = timeout
             changed = True
 
+    # Kueue v0.12+ expects requeuingStrategy.backoffLimitCount.
+    # Remove legacy/invalid field if present to avoid strict decoding failures.
+    if "requeuingBackoffLimit" in wait_config:
+        wait_config.pop("requeuingBackoffLimit", None)
+        changed = True
+
     if backoff_limit is not None:
-        if wait_config.get("requeuingBackoffLimit") != backoff_limit:
-            wait_config["requeuingBackoffLimit"] = backoff_limit
+        strategy = wait_config.get("requeuingStrategy") or {}
+        if strategy.get("backoffLimitCount") != backoff_limit:
+            strategy["backoffLimitCount"] = backoff_limit
+            wait_config["requeuingStrategy"] = strategy
             changed = True
 
     if changed:
