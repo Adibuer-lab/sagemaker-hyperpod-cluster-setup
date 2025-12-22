@@ -302,6 +302,13 @@ Resources:
                 Resource:
                   - Fn::Sub: arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/sagemaker/Clusters/*
                   - Fn::Sub: arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/sagemaker/Clusters/*:log-stream:*
+              - Sid: SageMakerDescribeCluster
+                Effect: Allow
+                Action:
+                  - sagemaker:DescribeCluster
+                  - sagemaker:ListClusters
+                Resource:
+                  - Fn::Sub: arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:cluster/*
           PolicyName:
             Fn::Sub: ${ResourceNamePrefix}-OnPol
       RoleName:
@@ -586,6 +593,14 @@ Resources:
                   - Arn
               - Ref: HyperPodObservabilityRole
           ServiceAccount: hyperpod-observability-operator-otel-collector
+        - RoleArn:
+            Fn::If:
+              - CreateHyperPodObservabilityRoleCondition
+              - Fn::GetAtt:
+                  - HyperPodObservabilityAddonRole
+                  - Arn
+              - Ref: HyperPodObservabilityRole
+          ServiceAccount: hyperpod-observability-controller-manager
       ResolveConflicts: OVERWRITE
       Tags:
         - Key: SageMaker
@@ -654,6 +669,14 @@ Resources:
                   - Arn
               - Ref: HyperPodObservabilityRole
           ServiceAccount: hyperpod-observability-operator-otel-collector
+        - RoleArn:
+            Fn::If:
+              - CreateHyperPodObservabilityRoleCondition
+              - Fn::GetAtt:
+                  - HyperPodObservabilityAddonRole
+                  - Arn
+              - Ref: HyperPodObservabilityRole
+          ServiceAccount: hyperpod-observability-controller-manager
       ResolveConflicts: OVERWRITE
       Tags:
         - Key: SageMaker
@@ -708,6 +731,14 @@ Resources:
                   - Arn
               - Ref: HyperPodObservabilityRole
           ServiceAccount: hyperpod-observability-operator-otel-collector
+        - RoleArn:
+            Fn::If:
+              - CreateHyperPodObservabilityRoleCondition
+              - Fn::GetAtt:
+                  - HyperPodObservabilityAddonRole
+                  - Arn
+              - Ref: HyperPodObservabilityRole
+          ServiceAccount: hyperpod-observability-controller-manager
       ResolveConflicts: OVERWRITE
       Tags:
         - Key: SageMaker
@@ -762,6 +793,14 @@ Resources:
                   - Arn
               - Ref: HyperPodObservabilityRole
           ServiceAccount: hyperpod-observability-operator-otel-collector
+        - RoleArn:
+            Fn::If:
+              - CreateHyperPodObservabilityRoleCondition
+              - Fn::GetAtt:
+                  - HyperPodObservabilityAddonRole
+                  - Arn
+              - Ref: HyperPodObservabilityRole
+          ServiceAccount: hyperpod-observability-controller-manager
       ResolveConflicts: OVERWRITE
       Tags:
         - Key: SageMaker

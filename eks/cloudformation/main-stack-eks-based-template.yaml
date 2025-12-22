@@ -2160,6 +2160,28 @@ Resources:
           AccessScope:
             Type: cluster
 
+  HyperPodNodeWaiterAccessEntry:
+    Type: AWS::EKS::AccessEntry
+    Condition: EnableHyperPodNodeWaiterCondition
+    DependsOn: HyperPodClusterStack
+    Properties:
+      ClusterName:
+        Fn::If:
+          - CreateEKSClusterStackCondition
+          - Fn::GetAtt:
+              - EKSClusterStack
+              - Outputs.EKSClusterName
+          - Ref: EKSClusterName
+      PrincipalArn:
+        Fn::GetAtt:
+          - HyperPodAssociationWaiterRole
+          - Arn
+      Type: STANDARD
+      AccessPolicies:
+        - PolicyArn: arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+          AccessScope:
+            Type: cluster
+
   KarpenterSetupFunction:
     Type: AWS::Lambda::Function
     Condition: KarpenterEnabledCondition
@@ -2351,6 +2373,7 @@ Resources:
     Condition: EnableHyperPodNodeWaiterCondition
     DependsOn:
       - HyperPodBootstrapWorkload
+      - HyperPodNodeWaiterAccessEntry
     Properties:
       ServiceToken:
         Fn::GetAtt:
