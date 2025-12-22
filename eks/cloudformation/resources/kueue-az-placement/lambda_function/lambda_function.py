@@ -13,6 +13,9 @@ AWS_REGION_ENV = "AWS_REGION"
 
 
 def _run(cmd, input_text=None, timeout=120):
+    print(f"Running: {' '.join(cmd)}")
+    if input_text:
+        print(f"Input: {input_text[:500]}...")
     result = subprocess.run(
         cmd,
         input=input_text,
@@ -20,8 +23,12 @@ def _run(cmd, input_text=None, timeout=120):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         timeout=timeout,
-        check=True,
     )
+    print(f"Exit code: {result.returncode}")
+    print(f"stdout: {result.stdout}")
+    print(f"stderr: {result.stderr}")
+    if result.returncode != 0:
+        raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
     return result.stdout
 
 
@@ -113,6 +120,24 @@ def _get_kueue_api_version():
     if not version:
         raise Exception("Unable to determine Kueue API version from /apis/kueue.x-k8s.io")
     return f"kueue.x-k8s.io/{version}"
+
+
+def _wait_for_kueue_webhook(max_attempts=30, delay_seconds=10):
+    """Wait for Kueue webhook to be ready (5 minutes max)."""
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result = _run([
+                "kubectl", "get", "endpoints", "kueue-webhook-service",
+                "-n", "kueue-system", "-o", "jsonpath={.subsets[*].addresses[*].ip}"
+            ], timeout=30)
+            if result.strip():
+                print(f"Kueue webhook ready with endpoints: {result.strip()}")
+                return True
+            print(f"Kueue webhook has no endpoints (attempt {attempt}/{max_attempts})")
+        except Exception as exc:
+            print(f"Error checking Kueue webhook (attempt {attempt}/{max_attempts}): {exc}")
+        time.sleep(delay_seconds)
+    raise Exception("Kueue webhook not ready after 5 minutes")
 
 
 def _get_kueue_api_version_with_retry(max_attempts=12, delay_seconds=5):
@@ -245,6 +270,7 @@ def _create_resources():
 
     _setup_kubeconfig(cluster_name, region)
     api_version = _get_kueue_api_version_with_retry()
+    _wait_for_kueue_webhook()
 
     fsx_az_name = _resolve_fsx_az_name(fsx_subnet_id, fsx_az_id, region)
     ordered_azs = list(az_list)

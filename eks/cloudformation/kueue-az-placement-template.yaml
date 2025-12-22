@@ -149,7 +149,7 @@ Resources:
           - KueueAzPlacementRole
           - Arn
       Runtime: python3.12
-      Timeout: 300
+      Timeout: 600
     DependsOn:
       - KueueAzPlacementAccessEntry
 
