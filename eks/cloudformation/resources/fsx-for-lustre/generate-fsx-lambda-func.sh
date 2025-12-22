@@ -20,6 +20,9 @@ cd package
 find . -name "*cpython-311*" -delete
 find . -name "*cpython-39*" -delete
 find . -name "*darwin*" -delete
+find . -name "__pycache__" -type d -prune -exec rm -rf {} +
+find . -name "*.pyc" -delete
+find . -name "*.dist-info" -type d -prune -exec rm -rf {} +
 zip -r "$ARTIFACTS_DIR/fsx-lambda-function.zip" .
 cd ..
 
