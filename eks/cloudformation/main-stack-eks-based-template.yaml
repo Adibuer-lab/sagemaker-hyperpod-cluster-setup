@@ -381,6 +381,8 @@ Metadata:
         default: Kueue waitForPodsReady timeout
       KueueWaitForPodsReadyRequeueBackoffLimit:
         default: Kueue waitForPodsReady requeue backoff limit
+      DevModeDisableRollback:
+        default: Dev mode disable rollback (unused)
       TieredStorageConfig:
         default: Tiered Storage Configuration
       TieredKVCacheConfig:
@@ -1204,6 +1206,13 @@ Parameters:
     Type: Number
     Default: 1
     Description: Kueue waitForPodsReady requeue backoff limit
+  DevModeDisableRollback:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Dev mode toggle passed from blueprint (unused in this template)
   CreateFsxStack:
     Type: String
     Default: 'true'
