@@ -2231,6 +2231,16 @@ Resources:
                   Fn::GetAtt:
                     - HyperPodClusterStack
                     - Outputs.HyperPodClusterArn
+              - Effect: Allow
+                Action:
+                  - eks:DescribeCluster
+                Resource:
+                  Fn::If:
+                    - CreateEKSClusterStackCondition
+                    - Fn::GetAtt:
+                        - EKSClusterStack
+                        - Outputs.EKSClusterArn
+                    - Fn::Sub: arn:aws:eks:${AWS::Region}:${AWS::AccountId}:cluster/${EKSClusterName}
 
   HyperPodAssociationWaiterFunction:
     Type: AWS::Lambda::Function
@@ -2348,6 +2358,15 @@ Resources:
               - EKSClusterStack
               - Outputs.EKSClusterArn
           - Fn::Sub: arn:aws:eks:${AWS::Region}:${AWS::AccountId}:cluster/${EKSClusterName}
+      EksClusterName:
+        Fn::If:
+          - CreateEKSClusterStackCondition
+          - Fn::GetAtt:
+              - EKSClusterStack
+              - Outputs.EKSClusterName
+          - Ref: EKSClusterName
+      EksNodeLabelSelector: sagemaker.amazonaws.com/compute-type=hyperpod
+      MinReadyEksNodes: 1
       MinNodeCount: 1
       WaitTimeoutSeconds: 1800
       PollIntervalSeconds: 30
