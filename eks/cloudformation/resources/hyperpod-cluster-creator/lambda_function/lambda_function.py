@@ -527,9 +527,21 @@ def delete_hyperpod_cluster():
         cluster_status = describe_response.get('ClusterStatus', '')
         print(f"Current cluster status: {cluster_status}")
         
+        cluster_arn = describe_response.get('ClusterArn')
+        if cluster_arn:
+            delete_task_governance_policies(sagemaker, cluster_arn)
+
         # Delete the cluster
         print(f"Deleting HyperPod cluster: {cluster_name}")
-        response = sagemaker.delete_cluster(ClusterName=cluster_name)
+        try:
+            response = sagemaker.delete_cluster(ClusterName=cluster_name)
+        except ClientError as e:
+            if cluster_arn and "task governance policies are attached" in str(e):
+                print("Task governance policies detected during delete. Retrying cleanup and delete.")
+                delete_task_governance_policies(sagemaker, cluster_arn)
+                response = sagemaker.delete_cluster(ClusterName=cluster_name)
+            else:
+                raise
         print(f"Delete cluster response: {response}")
         
         # Poll until cluster is deleted
@@ -573,6 +585,68 @@ def delete_hyperpod_cluster():
             raise
     except Exception as e:
         print(f"Error deleting cluster: {str(e)}")
+        raise
+
+def delete_task_governance_policies(sagemaker, cluster_arn):
+    """
+    Delete task governance policies (compute quotas and cluster scheduler configs) for a cluster.
+    """
+    print(f"Cleaning task governance policies for cluster: {cluster_arn}")
+
+    # Delete compute quotas first
+    try:
+        next_token = None
+        while True:
+            params = {'ClusterArn': cluster_arn, 'MaxResults': 100}
+            if next_token:
+                params['NextToken'] = next_token
+            resp = sagemaker.list_compute_quotas(**params)
+            for summary in resp.get('ComputeQuotaSummaries', []):
+                quota_id = summary.get('ComputeQuotaId')
+                if not quota_id:
+                    continue
+                try:
+                    print(f"Deleting compute quota: {quota_id}")
+                    sagemaker.delete_compute_quota(ComputeQuotaId=quota_id)
+                except ClientError as e:
+                    if e.response['Error']['Code'] in ['ResourceNotFound', 'ValidationException']:
+                        print(f"Compute quota already deleted or invalid: {quota_id}")
+                    else:
+                        raise
+            next_token = resp.get('NextToken')
+            if not next_token:
+                break
+    except ClientError as e:
+        print(f"Failed to list/delete compute quotas for {cluster_arn}: {str(e)}")
+        raise
+
+    # Delete cluster scheduler configs
+    try:
+        next_token = None
+        while True:
+            params = {'ClusterArn': cluster_arn, 'MaxResults': 100}
+            if next_token:
+                params['NextToken'] = next_token
+            resp = sagemaker.list_cluster_scheduler_configs(**params)
+            for summary in resp.get('ClusterSchedulerConfigSummaries', []):
+                config_id = summary.get('ClusterSchedulerConfigId')
+                if not config_id:
+                    continue
+                try:
+                    print(f"Deleting cluster scheduler config: {config_id}")
+                    sagemaker.delete_cluster_scheduler_config(
+                        ClusterSchedulerConfigId=config_id
+                    )
+                except ClientError as e:
+                    if e.response['Error']['Code'] in ['ResourceNotFound', 'ValidationException']:
+                        print(f"Cluster scheduler config already deleted or invalid: {config_id}")
+                    else:
+                        raise
+            next_token = resp.get('NextToken')
+            if not next_token:
+                break
+    except ClientError as e:
+        print(f"Failed to list/delete cluster scheduler configs for {cluster_arn}: {str(e)}")
         raise
 
 
