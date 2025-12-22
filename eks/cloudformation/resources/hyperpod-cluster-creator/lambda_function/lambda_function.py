@@ -3,6 +3,7 @@ import botocore
 import cfnresponse
 import os
 import json
+import time
 import yaml
 
 from botocore.exceptions import ClientError
@@ -587,7 +588,7 @@ def delete_hyperpod_cluster():
         print(f"Error deleting cluster: {str(e)}")
         raise
 
-def delete_task_governance_policies(sagemaker, cluster_arn):
+def delete_task_governance_policies(sagemaker, cluster_arn, max_attempts=6, delay_seconds=20):
     """
     Delete task governance policies (compute quotas and cluster scheduler configs) for a cluster.
     """
@@ -620,15 +621,33 @@ def delete_task_governance_policies(sagemaker, cluster_arn):
         print(f"Failed to list/delete compute quotas for {cluster_arn}: {str(e)}")
         raise
 
-    # Delete cluster scheduler configs
-    try:
+    # Delete cluster scheduler configs (retry with backoff)
+    def _list_cluster_scheduler_configs():
+        configs = []
         next_token = None
         while True:
             params = {'ClusterArn': cluster_arn, 'MaxResults': 100}
             if next_token:
                 params['NextToken'] = next_token
             resp = sagemaker.list_cluster_scheduler_configs(**params)
-            for summary in resp.get('ClusterSchedulerConfigSummaries', []):
+            configs.extend(resp.get('ClusterSchedulerConfigSummaries', []))
+            next_token = resp.get('NextToken')
+            if not next_token:
+                break
+        return configs
+
+    try:
+        for attempt in range(1, max_attempts + 1):
+            configs = _list_cluster_scheduler_configs()
+            if not configs:
+                print("No cluster scheduler configs remaining")
+                break
+
+            print(
+                f"Found {len(configs)} cluster scheduler config(s); "
+                f"attempt {attempt}/{max_attempts}"
+            )
+            for summary in configs:
                 config_id = summary.get('ClusterSchedulerConfigId')
                 if not config_id:
                     continue
@@ -638,13 +657,25 @@ def delete_task_governance_policies(sagemaker, cluster_arn):
                         ClusterSchedulerConfigId=config_id
                     )
                 except ClientError as e:
-                    if e.response['Error']['Code'] in ['ResourceNotFound', 'ValidationException']:
+                    code = e.response['Error'].get('Code', '')
+                    msg = str(e)
+                    if code in ['ResourceNotFound', 'ValidationException']:
                         print(f"Cluster scheduler config already deleted or invalid: {config_id}")
+                    elif code == 'InvalidRequestException' or 'InvalidRequestException' in msg:
+                        print(f"Retryable delete error for {config_id}: {msg}")
                     else:
                         raise
-            next_token = resp.get('NextToken')
-            if not next_token:
-                break
+
+            if attempt < max_attempts:
+                print(f"Waiting {delay_seconds}s before rechecking scheduler configs...")
+                time.sleep(delay_seconds)
+        else:
+            remaining = _list_cluster_scheduler_configs()
+            if remaining:
+                print(
+                    f"Warning: {len(remaining)} cluster scheduler config(s) still remain "
+                    f"after {max_attempts} attempts"
+                )
     except ClientError as e:
         print(f"Failed to list/delete cluster scheduler configs for {cluster_arn}: {str(e)}")
         raise
