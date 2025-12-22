@@ -132,8 +132,6 @@ Resources:
   KueueExternalFrameworksPatchResponseRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName:
-        Fn::Sub: ${ResourceNamePrefix}-kueue-external-frameworks-response-role
       AssumeRolePolicyDocument:
         Statement:
           - Action: sts:AssumeRole
@@ -166,8 +164,6 @@ Resources:
   KueueExternalFrameworksPatchStateMachineRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName:
-        Fn::Sub: ${ResourceNamePrefix}-kueue-external-frameworks-sfn-role
       AssumeRolePolicyDocument:
         Statement:
           - Action: sts:AssumeRole
@@ -371,8 +367,6 @@ Resources:
   KueueExternalFrameworksPatchStarterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName:
-        Fn::Sub: ${ResourceNamePrefix}-kueue-external-frameworks-starter-role
       AssumeRolePolicyDocument:
         Statement:
           - Action: sts:AssumeRole

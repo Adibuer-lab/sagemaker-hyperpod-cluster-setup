@@ -168,8 +168,6 @@ Resources:
   KueueAzPlacementResponseRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName:
-        Fn::Sub: ${ResourceNamePrefix}-kueue-az-placement-response-role
       AssumeRolePolicyDocument:
         Statement:
           - Action: sts:AssumeRole
@@ -202,8 +200,6 @@ Resources:
   KueueAzPlacementStateMachineRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName:
-        Fn::Sub: ${ResourceNamePrefix}-kueue-az-placement-sfn-role
       AssumeRolePolicyDocument:
         Statement:
           - Action: sts:AssumeRole
@@ -407,8 +403,6 @@ Resources:
   KueueAzPlacementStarterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName:
-        Fn::Sub: ${ResourceNamePrefix}-kueue-az-placement-starter-role
       AssumeRolePolicyDocument:
         Statement:
           - Action: sts:AssumeRole
