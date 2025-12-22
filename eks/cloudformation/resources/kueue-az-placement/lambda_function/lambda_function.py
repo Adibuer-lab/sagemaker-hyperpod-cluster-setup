@@ -123,19 +123,36 @@ def _get_kueue_api_version():
 
 
 def _wait_for_kueue_webhook(max_attempts=30, delay_seconds=10):
-    """Wait for Kueue webhook to be ready (5 minutes max)."""
+    """Wait for Kueue webhook service to have ready endpoints (5 minutes max)."""
     for attempt in range(1, max_attempts + 1):
         try:
-            # Check pod is Running and Ready
-            result = _run([
+            controller_ready = False
+            endpoints_ready = False
+
+            # Check controller pod is Running and Ready
+            pod_ready = _run([
                 "kubectl", "get", "pods", "-n", "kueue-system",
                 "-l", "control-plane=controller-manager",
                 "-o", "jsonpath={.items[0].status.conditions[?(@.type=='Ready')].status}"
-            ], timeout=30)
-            if result.strip() == "True":
-                print(f"Kueue controller pod is Ready (attempt {attempt})")
+            ], timeout=30).strip()
+            controller_ready = pod_ready == "True"
+
+            # Check webhook service has at least one endpoint address
+            endpoints = _run([
+                "kubectl", "get", "endpoints", "-n", "kueue-system", "kueue-webhook-service",
+                "-o", "jsonpath={.subsets[*].addresses[*].ip}"
+            ], timeout=30).strip()
+            endpoints_ready = bool(endpoints)
+
+            if controller_ready and endpoints_ready:
+                print(f"Kueue controller Ready and webhook endpoints available (attempt {attempt})")
                 return True
-            print(f"Kueue controller not ready: {result.strip()} (attempt {attempt}/{max_attempts})")
+
+            print(
+                "Kueue not ready "
+                f"(controller_ready={controller_ready}, endpoints_ready={endpoints_ready}) "
+                f"(attempt {attempt}/{max_attempts})"
+            )
         except Exception as exc:
             print(f"Error checking Kueue readiness (attempt {attempt}/{max_attempts}): {exc}")
         time.sleep(delay_seconds)
