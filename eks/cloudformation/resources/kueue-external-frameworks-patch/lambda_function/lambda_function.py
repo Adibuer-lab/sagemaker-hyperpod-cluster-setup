@@ -4,7 +4,11 @@ import cfnresponse
 import datetime
 import json
 import os
+import random
 import ssl
+import time
+import urllib.error
+import urllib.parse
 import urllib.request
 import yaml
 
@@ -13,6 +17,8 @@ DEFAULT_NAMESPACE = "kueue-system"
 DEFAULT_CONFIGMAP_NAME = "kueue-manager-config"
 DEFAULT_DEPLOYMENT_NAME = "kueue-controller-manager"
 DEFAULT_CONFIG_KEY = "controller_manager_config.yaml"
+DEFAULT_WEBHOOK_SERVICE = "kueue-webhook-service"
+DEFAULT_WEBHOOK_PORT = 9443
 
 
 def get_eks_token(cluster_name):
@@ -53,6 +59,129 @@ def k8s_request(endpoint, ca_data, token, method, path, body=None, content_type=
             return resp.status, resp.read().decode()
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode()
+    except urllib.error.URLError as e:
+        raise Exception(f"Failed to reach Kubernetes API: {e}")
+
+
+def _deployment_ready(request, namespace, deployment_name):
+    status, resp = request("GET", f"/apis/apps/v1/namespaces/{namespace}/deployments/{deployment_name}")
+    if status == 404:
+        return False, "deployment not found"
+    if status != 200:
+        return False, f"deployment fetch failed: {status}"
+    data = json.loads(resp)
+    spec = data.get("spec", {})
+    status_block = data.get("status", {})
+    desired = int(spec.get("replicas", 1))
+    available = int(status_block.get("availableReplicas", 0) or 0)
+    ready = int(status_block.get("readyReplicas", 0) or 0)
+    updated = int(status_block.get("updatedReplicas", 0) or 0)
+    ok = available >= 1 and ready >= 1 and updated >= desired
+    detail = f"desired={desired} available={available} ready={ready} updated={updated}"
+    return ok, detail
+
+
+def _endpointslice_ready(request, namespace, service_name):
+    selector = urllib.parse.quote(f"kubernetes.io/service-name={service_name}")
+    status, resp = request(
+        "GET",
+        f"/apis/discovery.k8s.io/v1/namespaces/{namespace}/endpointslices?labelSelector={selector}",
+    )
+    if status == 404:
+        return False, 0, False, "endpointslice not found"
+    if status != 200:
+        return False, 0, False, f"endpointslice fetch failed: {status}"
+    data = json.loads(resp)
+    items = data.get("items", [])
+    ready_addresses = 0
+    ports_ok = False
+    ports_seen = False
+    for item in items:
+        ports = item.get("ports", []) or []
+        if ports:
+            ports_seen = True
+            for port in ports:
+                port_num = port.get("port")
+                name = (port.get("name") or "").lower()
+                if port_num == DEFAULT_WEBHOOK_PORT or name in ("https", "webhook", "kueue-webhook"):
+                    ports_ok = True
+        for endpoint in item.get("endpoints", []) or []:
+            conditions = endpoint.get("conditions", {}) or {}
+            if conditions.get("ready") is True:
+                addresses = endpoint.get("addresses", []) or []
+                ready_addresses += len(addresses)
+    if not ports_seen:
+        ports_ok = True
+    ok = ready_addresses > 0 and ports_ok
+    detail = f"ready_addresses={ready_addresses} ports_ok={ports_ok}"
+    return ok, ready_addresses, ports_ok, detail
+
+
+def _endpoints_ready(request, namespace, service_name):
+    status, resp = request("GET", f"/api/v1/namespaces/{namespace}/endpoints/{service_name}")
+    if status == 404:
+        return False, 0, False, "endpoints not found"
+    if status != 200:
+        return False, 0, False, f"endpoints fetch failed: {status}"
+    data = json.loads(resp)
+    ready = 0
+    not_ready = 0
+    ports_ok = False
+    ports_seen = False
+    for subset in data.get("subsets", []) or []:
+        ready += len(subset.get("addresses", []) or [])
+        not_ready += len(subset.get("notReadyAddresses", []) or [])
+        ports = subset.get("ports", []) or []
+        if ports:
+            ports_seen = True
+            for port in ports:
+                port_num = port.get("port")
+                name = (port.get("name") or "").lower()
+                if port_num == DEFAULT_WEBHOOK_PORT or name in ("https", "webhook", "kueue-webhook"):
+                    ports_ok = True
+    if not ports_seen:
+        ports_ok = True
+    ok = ready > 0 and ports_ok
+    detail = f"ready_addresses={ready} not_ready={not_ready} ports_ok={ports_ok}"
+    return ok, ready, ports_ok, detail
+
+
+def _wait_for_kueue_ready(request, namespace, deployment_name, max_attempts=30, delay_seconds=10):
+    for attempt in range(1, max_attempts + 1):
+        try:
+            dep_ready, dep_detail = _deployment_ready(request, namespace, deployment_name)
+            slice_ready, _, _, slice_detail = _endpointslice_ready(request, namespace, DEFAULT_WEBHOOK_SERVICE)
+            eps_ready, _, _, eps_detail = _endpoints_ready(request, namespace, DEFAULT_WEBHOOK_SERVICE)
+            webhook_ready = slice_ready or eps_ready
+            if dep_ready and webhook_ready:
+                print(f"Kueue ready (attempt {attempt})")
+                return True
+            print(
+                "Kueue not ready "
+                f"(deployment_ready={dep_ready} {dep_detail}, "
+                f"endpointslice_ready={slice_ready} {slice_detail}, "
+                f"endpoints_ready={eps_ready} {eps_detail}) "
+                f"(attempt {attempt}/{max_attempts})"
+            )
+        except Exception as exc:
+            print(f"Error checking Kueue readiness (attempt {attempt}/{max_attempts}): {exc}")
+        time.sleep(delay_seconds)
+    raise Exception("Kueue webhook not ready after waiting")
+
+
+def _request_with_retry(request, method, path, body=None, content_type="application/yaml", max_attempts=6):
+    last_status = None
+    last_resp = None
+    for attempt in range(1, max_attempts + 1):
+        status, resp = request(method, path, body, content_type)
+        last_status, last_resp = status, resp
+        if status not in (429, 500, 502, 503, 504):
+            return status, resp
+        delay = min(5 * (2 ** (attempt - 1)), 60)
+        delay = delay + random.uniform(0, 3)
+        print(f"Transient API error {status} on {method} {path}; retrying in {delay:.1f}s")
+        time.sleep(delay)
+    return last_status, last_resp
 
 
 def parse_frameworks(value):
@@ -184,10 +313,13 @@ def handler(event, context):
             token = get_eks_token(cluster_name)
         return status, resp
 
-    status, resp = request("GET", f"/api/v1/namespaces/{namespace}/configmaps/{configmap_name}")
+    _wait_for_kueue_ready(request, namespace, deployment_name)
+
+    status, resp = _request_with_retry(
+        request, "GET", f"/api/v1/namespaces/{namespace}/configmaps/{configmap_name}"
+    )
     if status == 404:
-        cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Message": "Kueue configmap not found"})
-        return
+        raise Exception("Kueue configmap not found after wait; Kueue is not ready or not installed")
     if status != 200:
         raise Exception(f"Failed to get configmap: {status} {resp}")
 
@@ -211,7 +343,8 @@ def handler(event, context):
     updated_yaml = yaml.safe_dump(config, default_flow_style=False, sort_keys=False)
     configmap["data"][config_key] = updated_yaml
     sanitize_resource(configmap)
-    status, resp = request(
+    status, resp = _request_with_retry(
+        request,
         "PUT",
         f"/api/v1/namespaces/{namespace}/configmaps/{configmap_name}",
         json.dumps(configmap),
@@ -221,7 +354,8 @@ def handler(event, context):
         raise Exception(f"Failed to update configmap: {status} {resp}")
 
     # Restart kueue-controller-manager to pick up config changes
-    status, resp = request(
+    status, resp = _request_with_retry(
+        request,
         "GET",
         f"/apis/apps/v1/namespaces/{namespace}/deployments/{deployment_name}",
     )
@@ -240,7 +374,8 @@ def handler(event, context):
         deployment.setdefault("spec", {}).setdefault("template", {}).setdefault("metadata", {})[
             "annotations"
         ] = annotations
-        status, resp = request(
+        status, resp = _request_with_retry(
+            request,
             "PUT",
             f"/apis/apps/v1/namespaces/{namespace}/deployments/{deployment_name}",
             json.dumps(deployment),
