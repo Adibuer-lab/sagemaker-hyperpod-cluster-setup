@@ -3,6 +3,7 @@ import cfnresponse
 import hashlib
 import json
 import os
+import random
 import re
 import subprocess
 import time
@@ -10,6 +11,28 @@ import yaml
 
 CLUSTER_NAME_ENV = "EKS_CLUSTER_NAME"
 AWS_REGION_ENV = "AWS_REGION"
+KUEUE_NAMESPACE = "kueue-system"
+KUEUE_WEBHOOK_SERVICE = "kueue-webhook-service"
+KUEUE_CONTROLLER_DEPLOYMENT = "kueue-controller-manager"
+KUEUE_WEBHOOK_PORT = 9443
+
+
+def _is_webhook_transient_error(stderr):
+    if not stderr:
+        return False
+    message = stderr.lower()
+    patterns = [
+        "failed calling webhook",
+        "context deadline exceeded",
+        "connection refused",
+        "dial tcp",
+        "i/o timeout",
+        "no endpoints available for service",
+        "connection reset by peer",
+        "eof",
+        "tls handshake timeout",
+    ]
+    return any(pattern in message for pattern in patterns)
 
 
 def _run(cmd, input_text=None, timeout=120):
@@ -122,41 +145,118 @@ def _get_kueue_api_version():
     return f"kueue.x-k8s.io/{version}"
 
 
+def _deployment_ready(namespace, name):
+    raw = _run([
+        "kubectl", "get", "deployment", "-n", namespace, name, "-o", "json"
+    ], timeout=30)
+    data = json.loads(raw)
+    spec = data.get("spec", {})
+    status = data.get("status", {})
+    desired = int(spec.get("replicas", 1))
+    available = int(status.get("availableReplicas", 0) or 0)
+    ready = int(status.get("readyReplicas", 0) or 0)
+    updated = int(status.get("updatedReplicas", 0) or 0)
+    ok = available >= 1 and ready >= 1 and updated >= desired
+    detail = f"desired={desired} available={available} ready={ready} updated={updated}"
+    return ok, detail
+
+
+def _endpointslice_ready(namespace, service_name):
+    try:
+        raw = _run([
+            "kubectl", "get", "endpointslice", "-n", namespace,
+            "-l", f"kubernetes.io/service-name={service_name}",
+            "-o", "json",
+        ], timeout=30)
+    except subprocess.CalledProcessError as exc:
+        return False, 0, False, f"endpointslice error: {exc.stderr}"
+
+    data = json.loads(raw)
+    items = data.get("items", [])
+    ready_addresses = 0
+    ports_ok = False
+    ports_seen = False
+    for item in items:
+        ports = item.get("ports", []) or []
+        if ports:
+            ports_seen = True
+            for port in ports:
+                port_num = port.get("port")
+                name = (port.get("name") or "").lower()
+                if port_num == KUEUE_WEBHOOK_PORT or name in ("https", "webhook", "kueue-webhook"):
+                    ports_ok = True
+        for endpoint in item.get("endpoints", []) or []:
+            conditions = endpoint.get("conditions", {}) or {}
+            if conditions.get("ready") is True:
+                addresses = endpoint.get("addresses", []) or []
+                ready_addresses += len(addresses)
+    if not ports_seen:
+        ports_ok = True
+    ok = ready_addresses > 0 and ports_ok
+    detail = f"ready_addresses={ready_addresses} ports_ok={ports_ok}"
+    return ok, ready_addresses, ports_ok, detail
+
+
+def _endpoints_ready(namespace, service_name):
+    raw = _run([
+        "kubectl", "get", "endpoints", "-n", namespace, service_name, "-o", "json"
+    ], timeout=30)
+    data = json.loads(raw)
+    ready = 0
+    not_ready = 0
+    ports_ok = False
+    ports_seen = False
+    for subset in data.get("subsets", []) or []:
+        ready += len(subset.get("addresses", []) or [])
+        not_ready += len(subset.get("notReadyAddresses", []) or [])
+        ports = subset.get("ports", []) or []
+        if ports:
+            ports_seen = True
+            for port in ports:
+                port_num = port.get("port")
+                name = (port.get("name") or "").lower()
+                if port_num == KUEUE_WEBHOOK_PORT or name in ("https", "webhook", "kueue-webhook"):
+                    ports_ok = True
+    if not ports_seen:
+        ports_ok = True
+    ok = ready > 0 and ports_ok
+    detail = f"ready_addresses={ready} not_ready={not_ready} ports_ok={ports_ok}"
+    return ok, ready, ports_ok, detail
+
+
 def _wait_for_kueue_webhook(max_attempts=30, delay_seconds=10):
-    """Wait for Kueue webhook service to have ready endpoints (5 minutes max)."""
+    """Wait for Kueue controller to be available and webhook endpoints ready."""
     for attempt in range(1, max_attempts + 1):
         try:
-            controller_ready = False
-            endpoints_ready = False
+            controller_ready, controller_detail = _deployment_ready(
+                KUEUE_NAMESPACE, KUEUE_CONTROLLER_DEPLOYMENT
+            )
+            endpointslice_ready, _, _, endpointslice_detail = _endpointslice_ready(
+                KUEUE_NAMESPACE, KUEUE_WEBHOOK_SERVICE
+            )
+            endpoints_ready, _, _, endpoints_detail = _endpoints_ready(
+                KUEUE_NAMESPACE, KUEUE_WEBHOOK_SERVICE
+            )
 
-            # Check controller pod is Running and Ready
-            pod_ready = _run([
-                "kubectl", "get", "pods", "-n", "kueue-system",
-                "-l", "control-plane=controller-manager",
-                "-o", "jsonpath={.items[0].status.conditions[?(@.type=='Ready')].status}"
-            ], timeout=30).strip()
-            controller_ready = pod_ready == "True"
-
-            # Check webhook service has at least one endpoint address
-            endpoints = _run([
-                "kubectl", "get", "endpoints", "-n", "kueue-system", "kueue-webhook-service",
-                "-o", "jsonpath={.subsets[*].addresses[*].ip}"
-            ], timeout=30).strip()
-            endpoints_ready = bool(endpoints)
-
-            if controller_ready and endpoints_ready:
-                print(f"Kueue controller Ready and webhook endpoints available (attempt {attempt})")
+            webhook_ready = endpointslice_ready or endpoints_ready
+            if controller_ready and webhook_ready:
+                print(
+                    "Kueue controller Ready and webhook endpoints available "
+                    f"(attempt {attempt})"
+                )
                 return True
 
             print(
                 "Kueue not ready "
-                f"(controller_ready={controller_ready}, endpoints_ready={endpoints_ready}) "
+                f"(controller_ready={controller_ready} {controller_detail}, "
+                f"endpointslice_ready={endpointslice_ready} {endpointslice_detail}, "
+                f"endpoints_ready={endpoints_ready} {endpoints_detail}) "
                 f"(attempt {attempt}/{max_attempts})"
             )
         except Exception as exc:
             print(f"Error checking Kueue readiness (attempt {attempt}/{max_attempts}): {exc}")
         time.sleep(delay_seconds)
-    raise Exception("Kueue webhook not ready after 5 minutes")
+    raise Exception("Kueue webhook not ready after waiting")
 
 
 def _get_kueue_api_version_with_retry(max_attempts=12, delay_seconds=5):
@@ -186,8 +286,27 @@ def _resolve_fsx_az_name(fsx_subnet_id, fsx_az_id, region):
     return None
 
 
-def _apply_resource(obj):
-    _run(["kubectl", "apply", "-f", "-"], input_text=json.dumps(obj))
+def _apply_resource(obj, max_attempts=6, base_delay_seconds=5):
+    payload = json.dumps(obj)
+    for attempt in range(1, max_attempts + 1):
+        try:
+            _run(["kubectl", "apply", "-f", "-"], input_text=payload)
+            return
+        except subprocess.CalledProcessError as exc:
+            stderr = exc.stderr or ""
+            if attempt >= max_attempts or not _is_webhook_transient_error(stderr):
+                raise
+            print(
+                "Transient webhook error while applying resource "
+                f"(attempt {attempt}/{max_attempts}): {stderr.strip()}"
+            )
+            try:
+                _wait_for_kueue_webhook(max_attempts=6, delay_seconds=5)
+            except Exception as wait_exc:
+                print(f"Webhook still not ready after retry wait: {wait_exc}")
+            delay = min(base_delay_seconds * (2 ** (attempt - 1)), 60)
+            delay = delay + random.uniform(0, 3)
+            time.sleep(delay)
 
 
 def _delete_resource(kind, name, namespace=None):
