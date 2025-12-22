@@ -652,14 +652,25 @@ def delete_task_governance_policies(sagemaker, cluster_arn):
 
 def on_delete(event):
     """
-    Handle Delete request to clean up files created during cluster creation
+    Handle Delete request to delete the HyperPod cluster and clean up files
     """
     try:
+        response_data = {}
+
+        # Delete the HyperPod cluster and task governance policies first
+        try:
+            cluster_result = delete_hyperpod_cluster()
+            if isinstance(cluster_result, dict):
+                response_data.update(cluster_result)
+        except Exception as e:
+            print(f"Warning: failed to delete HyperPod cluster: {str(e)}")
+
         s3 = boto3.client('s3')
         bucket = os.environ.get('S3_BUCKET_NAME')
         if not bucket:
             print("S3_BUCKET_NAME environment variable not found")
-            return {'Message': 'S3 bucket name not provided, nothing to delete'}
+            response_data.setdefault('Message', 'S3 bucket name not provided, nothing to delete')
+            return response_data
             
         deleted_files = []
         
@@ -704,15 +715,15 @@ def on_delete(event):
                     print(f"Error checking/deleting s3://{bucket}/{params_key}: {str(e)}")
         
         if deleted_files:
-            return {'Message': f'Successfully deleted files: {", ".join(deleted_files)}'}
+            response_data['Message'] = f'Successfully deleted files: {", ".join(deleted_files)}'
         else:
-            return {'Message': 'No files found to delete'}
+            response_data.setdefault('Message', 'No files found to delete')
+
+        return response_data
             
     except Exception as e:
         print(f"Error in on_delete: {str(e)}")
-        # Don't raise the exception, just return a message about it
-        # This ensures CloudFormation deletion continues even if file cleanup fails
-        return {'Message': f'Error deleting files: {str(e)}'}
+        raise
 
 def on_create(event):
     """
