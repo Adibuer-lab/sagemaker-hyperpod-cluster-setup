@@ -229,67 +229,38 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - ec2:AttachNetworkInterface
-                Resource:
-                  - Fn::Sub: arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/*
-                  - Fn::Sub: arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/*
-              - Sid: AmazonEKSCNIDescribePolicy
-                Effect: Allow
-                Action:
-                  - ec2:DescribeInstances
-                  - ec2:DescribeTags
-                  - ec2:DescribeNetworkInterfaces
-                  - ec2:DescribeInstanceTypes
-                  - ec2:DescribeSubnets
-                Resource: '*'
-              - Sid: AmazonEKSCNIPolicyENITag
-                Effect: Allow
-                Action:
-                  - ec2:CreateTags
-                Resource:
-                  - arn:aws:ec2:*:*:network-interface/*
-          PolicyName:
-            Fn::Sub: ${ResourceNamePrefix}_AmazonEKS_CNI_Policy
-        - PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
                   - ec2:AssignPrivateIpAddresses
+                  - ec2:AttachNetworkInterface
                   - ec2:CreateNetworkInterface
                   - ec2:CreateNetworkInterfacePermission
                   - ec2:DeleteNetworkInterface
                   - ec2:DeleteNetworkInterfacePermission
-                  - ec2:ModifyNetworkInterfaceAttribute
-                  - ec2:UnassignPrivateIpAddresses
-                Resource:
-                  - Fn::Sub: arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/*
-                  - Fn::Sub: arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/*
-                  - Fn::Sub: arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:vpc/${VpcId}
-              - Effect: Allow
-                Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeInstanceTypes
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeTags
                   - ec2:DescribeVpcs
                   - ec2:DescribeDhcpOptions
+                  - ec2:DescribeSubnets
                   - ec2:DescribeSecurityGroups
                   - ec2:DetachNetworkInterface
-                Resource: '*'
-              - Effect: Allow
-                Action:
+                  - ec2:ModifyNetworkInterfaceAttribute
+                  - ec2:UnassignPrivateIpAddresses
                   - ecr:BatchCheckLayerAvailability
                   - ecr:BatchGetImage
                   - ecr:GetAuthorizationToken
                   - ecr:GetDownloadUrlForLayer
-                  - cloudwatch:DescribeAlarms
+                  - eks-auth:AssumeRoleForPodIdentity
                 Resource: '*'
               - Effect: Allow
                 Action:
-                  - eks-auth:AssumeRoleForPodIdentity
+                  - ec2:CreateTags
                 Resource:
-                  - Fn::Sub: arn:aws:eks:${AWS::Region}:${AWS::AccountId}:cluster/${EKSClusterName}
+                  - arn:aws:ec2:*:*:network-interface/*
               - Effect: Allow
                 Action:
-                  - ec2:CreateTags
-                Resource: arn:aws:ec2:*:*:network-interface/*
+                  - cloudwatch:DescribeAlarms
+                Resource: '*'
               - Effect: Allow
                 Action:
                   - s3:ListBucket
@@ -298,7 +269,7 @@ Resources:
                   - Fn::Sub: arn:aws:s3:::${S3BucketName}
                   - Fn::Sub: arn:aws:s3:::${S3BucketName}/*
           PolicyName:
-            Fn::Sub: ${ResourceNamePrefix}-Policy
+            Fn::Sub: ${ResourceNamePrefix}-EksHyperPodInlinePolicy
       RoleName:
         Fn::Sub: ${ResourceNamePrefix}ExecRole
       Tags:
