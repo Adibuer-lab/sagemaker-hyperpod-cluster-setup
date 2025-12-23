@@ -593,14 +593,6 @@ Resources:
                   - Arn
               - Ref: HyperPodObservabilityRole
           ServiceAccount: hyperpod-observability-operator-otel-collector
-        - RoleArn:
-            Fn::If:
-              - CreateHyperPodObservabilityRoleCondition
-              - Fn::GetAtt:
-                  - HyperPodObservabilityAddonRole
-                  - Arn
-              - Ref: HyperPodObservabilityRole
-          ServiceAccount: hyperpod-observability-controller-manager
       ResolveConflicts: OVERWRITE
       Tags:
         - Key: SageMaker
@@ -669,14 +661,6 @@ Resources:
                   - Arn
               - Ref: HyperPodObservabilityRole
           ServiceAccount: hyperpod-observability-operator-otel-collector
-        - RoleArn:
-            Fn::If:
-              - CreateHyperPodObservabilityRoleCondition
-              - Fn::GetAtt:
-                  - HyperPodObservabilityAddonRole
-                  - Arn
-              - Ref: HyperPodObservabilityRole
-          ServiceAccount: hyperpod-observability-controller-manager
       ResolveConflicts: OVERWRITE
       Tags:
         - Key: SageMaker
@@ -731,14 +715,6 @@ Resources:
                   - Arn
               - Ref: HyperPodObservabilityRole
           ServiceAccount: hyperpod-observability-operator-otel-collector
-        - RoleArn:
-            Fn::If:
-              - CreateHyperPodObservabilityRoleCondition
-              - Fn::GetAtt:
-                  - HyperPodObservabilityAddonRole
-                  - Arn
-              - Ref: HyperPodObservabilityRole
-          ServiceAccount: hyperpod-observability-controller-manager
       ResolveConflicts: OVERWRITE
       Tags:
         - Key: SageMaker
@@ -793,14 +769,6 @@ Resources:
                   - Arn
               - Ref: HyperPodObservabilityRole
           ServiceAccount: hyperpod-observability-operator-otel-collector
-        - RoleArn:
-            Fn::If:
-              - CreateHyperPodObservabilityRoleCondition
-              - Fn::GetAtt:
-                  - HyperPodObservabilityAddonRole
-                  - Arn
-              - Ref: HyperPodObservabilityRole
-          ServiceAccount: hyperpod-observability-controller-manager
       ResolveConflicts: OVERWRITE
       Tags:
         - Key: SageMaker
