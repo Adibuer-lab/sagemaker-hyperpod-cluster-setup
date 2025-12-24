@@ -31,7 +31,6 @@ run observability-grafana-creator generate-observability-grafana-creator-lambda-
 run grafana-service-token generate-grafana-service-token-lambda-zip.sh
 run observability-stack generate-observability-stack-lambda-zip.sh
 run cluster-policy generate-cluster-policy-lambda-zip.sh
-run coredns-restart generate-coredns-restart-lambda-func.sh
 run workspace-templates generate-workspace-templates-lambda-func.sh
 run karpenter-setup generate-karpenter-setup-lambda-func.sh
 run hyperpod-association-waiter generate-hyperpod-association-waiter-lambda-func.sh

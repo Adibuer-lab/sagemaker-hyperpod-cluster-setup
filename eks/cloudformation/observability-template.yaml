@@ -560,7 +560,7 @@ Resources:
                     - PrometheusWorkspace
                     - Arn
                 - Ref: PrometheusWorkspaceArn
-            - '"},"metricsProvider":{"trainingMetrics":{"level":"'
+            - '"},"nodeSelector":{"node-role":"system"},"metricsProvider":{"trainingMetrics":{"level":"'
             - Ref: TrainingMetricLevel
             - >-
               ","scrapeInterval":30},"inferenceMetrics":{"level":"BASIC","scrapeInterval":30},"taskGovernanceMetrics":{"level":"
@@ -628,7 +628,7 @@ Resources:
                     - PrometheusWorkspace
                     - Arn
                 - Ref: PrometheusWorkspaceArn
-            - '"},"metricsProvider":{"trainingMetrics":{"level":"'
+            - '"},"nodeSelector":{"node-role":"system"},"metricsProvider":{"trainingMetrics":{"level":"'
             - Ref: TrainingMetricLevel
             - >-
               ","scrapeInterval":30},"inferenceMetrics":{"level":"BASIC","scrapeInterval":30},"taskGovernanceMetrics":{"level":"
@@ -696,7 +696,7 @@ Resources:
                     - PrometheusWorkspace
                     - Arn
                 - Ref: PrometheusWorkspaceArn
-            - '"},"metricsProvider":{"trainingMetrics":{"level":"'
+            - '"},"nodeSelector":{"node-role":"system"},"metricsProvider":{"trainingMetrics":{"level":"'
             - Ref: TrainingMetricLevel
             - >-
               ","scrapeInterval":30},"inferenceMetrics":{"level":"BASIC","scrapeInterval":30},"taskGovernanceMetrics":{"level":"
@@ -750,7 +750,7 @@ Resources:
                     - PrometheusWorkspace
                     - Arn
                 - Ref: PrometheusWorkspaceArn
-            - '"},"metricsProvider":{"trainingMetrics":{"level":"'
+            - '"},"nodeSelector":{"node-role":"system"},"metricsProvider":{"trainingMetrics":{"level":"'
             - Ref: TrainingMetricLevel
             - >-
               ","scrapeInterval":30},"inferenceMetrics":{"level":"BASIC","scrapeInterval":30},"taskGovernanceMetrics":{"level":"
