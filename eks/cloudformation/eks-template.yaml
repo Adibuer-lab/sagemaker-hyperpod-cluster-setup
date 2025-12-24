@@ -182,11 +182,6 @@ Resources:
           Labels:
             - Key: app
               Value: fsx-csi-controller
-        # HyperPod Observability controller
-        - Namespace: hyperpod-observability
-          Labels:
-            - Key: control-plane
-              Value: hyperpod-observability-controller-manager
     Metadata:
       aws:cdk:path: EksCfnTemplate/FargateProfileControllers
 
