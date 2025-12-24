@@ -894,7 +894,7 @@ def generate_cluster_template_yaml(create_params):
             },
             "HyperPodClusterName": {
                 "Description": "The name of the created SageMaker HyperPod cluster",
-                "Value": {"Ref": "NewHyperPodCluster"}
+                "Value": create_params.get("ClusterName", "")
             }
         }
     }

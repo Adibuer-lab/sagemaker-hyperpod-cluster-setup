@@ -1,5 +1,4 @@
 import boto3
-from botocore.exceptions import ClientError
 import cfnresponse
 import json
 import base64
@@ -103,41 +102,10 @@ def build_nodepool(pool_name, nodeclass_name, instance_types, role=None, is_defa
     return nodepool
 
 
-def resolve_hyperpod_cluster_name(sagemaker, hyperpod_cluster_name, eks_cluster_name):
+def resolve_hyperpod_cluster_name(sagemaker, hyperpod_cluster_name):
     if not hyperpod_cluster_name:
         raise Exception("HYPERPOD_CLUSTER_NAME is required")
-
-    def describe(name):
-        return sagemaker.describe_cluster(ClusterName=name)
-
-    if hyperpod_cluster_name.startswith("arn:"):
-        next_token = None
-        while True:
-            kwargs = {'MaxResults': 100}
-            if next_token:
-                kwargs['NextToken'] = next_token
-            resp = sagemaker.list_clusters(**kwargs)
-            for cluster in resp.get('ClusterSummaries', []):
-                if cluster.get('ClusterArn') == hyperpod_cluster_name:
-                    cluster_name = cluster.get('ClusterName')
-                    if not cluster_name:
-                        raise Exception("Found HyperPod cluster ARN but missing ClusterName in response")
-                    return cluster_name, describe(cluster_name)
-            next_token = resp.get('NextToken')
-            if not next_token:
-                break
-        raise Exception("HYPERPOD_CLUSTER_NAME looks like an ARN but no matching cluster was found")
-
-    try:
-        return hyperpod_cluster_name, describe(hyperpod_cluster_name)
-    except ClientError:
-        if eks_cluster_name and eks_cluster_name.endswith("-eks"):
-            candidate = eks_cluster_name[:-4]
-            try:
-                return candidate, describe(candidate)
-            except ClientError:
-                pass
-        raise
+    return hyperpod_cluster_name, sagemaker.describe_cluster(ClusterName=hyperpod_cluster_name)
 
 
 def patch_node_labels(endpoint, ca_data, token, label_key, label_value):
@@ -192,8 +160,7 @@ def handler(event, context):
         sagemaker = boto3.client('sagemaker')
         hyperpod_cluster_name, hyperpod_cluster = resolve_hyperpod_cluster_name(
             sagemaker,
-            hyperpod_cluster_name,
-            cluster_name
+            hyperpod_cluster_name
         )
         instance_groups = [ig['InstanceGroupName'] for ig in hyperpod_cluster['InstanceGroups']]
         print(f"Found {len(instance_groups)} instance groups: {instance_groups}")

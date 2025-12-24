@@ -2,9 +2,9 @@ Parameters:
   EKSClusterName:
     Type: String
     Description: Name of the EKS cluster
-  HyperPodClusterName:
+  HyperPodClusterArn:
     Type: String
-    Description: Name of the HyperPod cluster
+    Description: ARN of the HyperPod cluster
   TaskGovernanceAddonVersion:
     Type: String
     Default: ''
@@ -38,17 +38,7 @@ Resources:
       ServiceToken:
         Fn::ImportValue: TaskGovernanceAddonLambdaArn
       ClusterArn:
-        Fn::Sub:
-          - arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:cluster/${ClusterName}
-          - ClusterName:
-              Fn::Select:
-                - 1
-                - Fn::Split:
-                    - cluster/
-                    - Fn::Join:
-                        - ''
-                        - - ''
-                          - Ref: HyperPodClusterName
+        Ref: HyperPodClusterArn
       Name:
         Fn::Sub: ${EKSClusterName}-scheduler-config
       Description: >-

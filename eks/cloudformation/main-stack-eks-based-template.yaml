@@ -2132,10 +2132,6 @@ Resources:
                     - Outputs.HyperPodClusterArn
               - Effect: Allow
                 Action:
-                  - sagemaker:ListClusters
-                Resource: '*'
-              - Effect: Allow
-                Action:
                   - sts:GetCallerIdentity
                 Resource: '*'
 
@@ -2421,13 +2417,13 @@ Resources:
                 - EKSClusterStack
                 - Outputs.EKSClusterName
             - Ref: EKSClusterName
-        HyperPodClusterName:
+        HyperPodClusterArn:
           Fn::If:
             - CreateHyperPodClusterStackCondition
             - Fn::GetAtt:
                 - HyperPodClusterStack
-                - Outputs.HyperPodClusterName
-            - Ref: HyperPodClusterName
+                - Outputs.HyperPodClusterArn
+            - Fn::Sub: arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:cluster/${HyperPodClusterName}
         TaskGovernanceAddonVersion:
           Ref: TaskGovernanceAddonVersion
     DependsOn:
