@@ -10,6 +10,14 @@ CLUSTER_NAME_ENV = "EKS_CLUSTER_NAME"
 AWS_REGION_ENV = "AWS_REGION"
 DEFAULT_NAMESPACE = "cert-manager"
 DEFAULT_DEPLOYMENTS = "cert-manager,cert-manager-webhook,cert-manager-cainjector"
+DEFAULT_WEBHOOK_SERVICE = "cert-manager-webhook"
+DEFAULT_WEBHOOK_CA_SECRET = "cert-manager-webhook-ca"
+DEFAULT_CRDS = [
+    "certificates.cert-manager.io",
+    "certificaterequests.cert-manager.io",
+    "issuers.cert-manager.io",
+    "clusterissuers.cert-manager.io",
+]
 
 
 def _run(cmd, input_text=None, timeout=120):
@@ -105,6 +113,50 @@ def _namespace_exists(namespace):
         return False, exc.stderr or exc.stdout
 
 
+def _crd_established(name):
+    try:
+        raw = _run(["kubectl", "get", "crd", name, "-o", "json"], timeout=30)
+    except subprocess.CalledProcessError as exc:
+        return False, f"crd {name} not found: {exc.stderr or exc.stdout}"
+
+    data = json.loads(raw)
+    conditions = data.get("status", {}).get("conditions", []) or []
+    for condition in conditions:
+        if condition.get("type") == "Established":
+            status = condition.get("status")
+            if status == "True":
+                return True, "Established"
+            return False, f"Established={status}"
+    return False, "Established condition missing"
+
+
+def _secret_exists(namespace, name):
+    try:
+        _run(["kubectl", "get", "secret", name, "-n", namespace, "-o", "json"], timeout=30)
+        return True, ""
+    except subprocess.CalledProcessError as exc:
+        return False, exc.stderr or exc.stdout
+
+
+def _endpoints_ready(namespace, service_name):
+    try:
+        raw = _run([
+            "kubectl", "get", "endpoints", "-n", namespace, service_name, "-o", "json"
+        ], timeout=30)
+    except subprocess.CalledProcessError as exc:
+        return False, f"endpoints {service_name} not ready: {exc.stderr or exc.stdout}"
+
+    data = json.loads(raw)
+    ready = 0
+    not_ready = 0
+    for subset in data.get("subsets", []) or []:
+        ready += len(subset.get("addresses", []) or [])
+        not_ready += len(subset.get("notReadyAddresses", []) or [])
+    ok = ready > 0
+    detail = f"ready_addresses={ready} not_ready={not_ready}"
+    return ok, detail
+
+
 def _deployment_ready(namespace, name):
     try:
         raw = _run([
@@ -129,6 +181,19 @@ def _check_cert_manager_ready(namespace, deployments):
     ns_ok, ns_detail = _namespace_exists(namespace)
     if not ns_ok:
         return False, f"namespace {namespace} not ready: {ns_detail}"
+
+    for crd in DEFAULT_CRDS:
+        ok, detail = _crd_established(crd)
+        if not ok:
+            return False, f"crd {crd} not established: {detail}"
+
+    secret_ok, secret_detail = _secret_exists(namespace, DEFAULT_WEBHOOK_CA_SECRET)
+    if not secret_ok:
+        return False, f"secret {DEFAULT_WEBHOOK_CA_SECRET} not ready: {secret_detail}"
+
+    endpoints_ok, endpoints_detail = _endpoints_ready(namespace, DEFAULT_WEBHOOK_SERVICE)
+    if not endpoints_ok:
+        return False, f"webhook endpoints not ready: {endpoints_detail}"
 
     details = []
     for name in deployments:
