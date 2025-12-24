@@ -2410,7 +2410,6 @@ Resources:
             - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
     DependsOn:
       - CertManagerStack
-      - CertManagerReadinessStack
       - EKSClusterStack
       - HyperPodClusterStack
     Metadata:
