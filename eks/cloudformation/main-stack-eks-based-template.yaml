@@ -1198,13 +1198,21 @@ Parameters:
     Type: String
     Default: PodsReadyTimeout
     Description: Kueue eviction reason that triggers rotation
+  KueueAzRotationMinEvictions:
+    Type: Number
+    Default: 2
+    Description: Minimum distinct evictions before rotating queues
+  KueueAzRotationCooldownSeconds:
+    Type: Number
+    Default: 900
+    Description: Cooldown (seconds) between rotations for a workload
   KueueWaitForPodsReadyTimeout:
     Type: String
-    Default: 20m
+    Default: 30m
     Description: Kueue waitForPodsReady timeout duration
   KueueWaitForPodsReadyRequeueBackoffLimit:
     Type: Number
-    Default: 1
+    Default: 3
     Description: Kueue waitForPodsReady requeue backoff limit
   DevModeDisableRollback:
     Type: String
@@ -2579,6 +2587,10 @@ Resources:
           Ref: KueueAzRotationMaxRotations
         KueueAzRotationEvictionReason:
           Ref: KueueAzRotationEvictionReason
+        KueueAzRotationMinEvictions:
+          Ref: KueueAzRotationMinEvictions
+        KueueAzRotationCooldownSeconds:
+          Ref: KueueAzRotationCooldownSeconds
     DependsOn:
       - TaskGovernanceClusterPolicyStack
       - KueueAzPlacementResourcesStack

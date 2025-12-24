@@ -269,6 +269,8 @@ def _create_resources():
     rotation_log_level = os.environ.get("ROTATION_LOG_LEVEL", "INFO").strip()
     rotation_max = os.environ.get("ROTATION_MAX_ROTATIONS", "0").strip()
     rotation_reason = os.environ.get("ROTATION_EVICTION_REASON", "PodsReadyTimeout").strip()
+    rotation_min_evictions = os.environ.get("ROTATION_MIN_EVICTIONS", "1").strip()
+    rotation_cooldown = os.environ.get("ROTATION_COOLDOWN_SECONDS", "0").strip()
 
     if not rotation_image:
         raise Exception("ROTATION_IMAGE is empty")
@@ -299,6 +301,8 @@ def _create_resources():
         "QUEUE_ORDER": ",".join(queue_order),
         "EVICTION_REASON": rotation_reason,
         "MAX_ROTATIONS": rotation_max,
+        "MIN_EVICTIONS": rotation_min_evictions,
+        "ROTATION_COOLDOWN_SECONDS": rotation_cooldown,
         "LOG_LEVEL": rotation_log_level,
     }
 

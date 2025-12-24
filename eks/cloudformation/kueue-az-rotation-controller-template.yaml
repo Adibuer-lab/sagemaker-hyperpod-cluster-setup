@@ -61,6 +61,12 @@ Parameters:
   KueueAzRotationEvictionReason:
     Type: String
     Default: PodsReadyTimeout
+  KueueAzRotationMinEvictions:
+    Type: Number
+    Default: 2
+  KueueAzRotationCooldownSeconds:
+    Type: Number
+    Default: 900
 
 Resources:
   KueueAzRotationControllerRole:
@@ -159,6 +165,10 @@ Resources:
             Ref: KueueAzRotationMaxRotations
           ROTATION_EVICTION_REASON:
             Ref: KueueAzRotationEvictionReason
+          ROTATION_MIN_EVICTIONS:
+            Ref: KueueAzRotationMinEvictions
+          ROTATION_COOLDOWN_SECONDS:
+            Ref: KueueAzRotationCooldownSeconds
           PATH: /opt/python/bin:/var/lang/bin:/usr/local/bin:/usr/bin/:/bin
           KUBECONFIG: /tmp/.kube/config
           LD_LIBRARY_PATH: /opt/python/lib
