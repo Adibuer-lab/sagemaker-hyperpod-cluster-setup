@@ -108,43 +108,6 @@ def resolve_hyperpod_cluster_name(sagemaker, hyperpod_cluster_name):
     return hyperpod_cluster_name, sagemaker.describe_cluster(ClusterName=hyperpod_cluster_name)
 
 
-def patch_node_labels(endpoint, ca_data, token, label_key, label_value):
-    status, resp = k8s_request(endpoint, ca_data, token, 'GET', '/api/v1/nodes', None, content_type='application/json')
-    if status != 200:
-        raise Exception(f"Failed to list nodes: {status} {resp}")
-
-    nodes = json.loads(resp).get('items', [])
-    if not nodes:
-        print("No nodes found to label")
-        return
-
-    patch_body = json.dumps({
-        'metadata': {
-            'labels': {label_key: label_value}
-        }
-    })
-
-    for node in nodes:
-        meta = node.get('metadata') or {}
-        name = meta.get('name')
-        labels = meta.get('labels') or {}
-        if labels.get(label_key) == label_value:
-            continue
-        if not name:
-            continue
-        status, resp = k8s_request(
-            endpoint,
-            ca_data,
-            token,
-            'PATCH',
-            f"/api/v1/nodes/{name}",
-            patch_body,
-            content_type='application/merge-patch+json'
-        )
-        if status not in [200, 201]:
-            raise Exception(f"Failed to patch node {name}: {status} {resp}")
-
-
 def handler(event, context):
     if event['RequestType'] == 'Delete':
         cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
@@ -171,11 +134,6 @@ def handler(event, context):
         endpoint, ca_data = cluster['endpoint'], cluster['certificateAuthority']['data']
         token = get_eks_token(cluster_name)
         
-        # Ensure nodes carry the cluster-name label expected by the observability operator
-        cluster_name_label_key = 'sagemaker.amazonaws.com/cluster-name'
-        cluster_node_labels = {cluster_name_label_key: hyperpod_cluster_name}
-        patch_node_labels(endpoint, ca_data, token, cluster_name_label_key, hyperpod_cluster_name)
-
         # Create HyperpodNodeClass
         nodeclass = build_nodeclass(nodeclass_name, instance_groups)
         nodeclass_yaml = yaml.dump(nodeclass, default_flow_style=False, sort_keys=False)
@@ -220,7 +178,7 @@ def handler(event, context):
         
         for role, types in role_to_types.items():
             pool_name = f"{nodepool_prefix}-{role}"
-            nodepool = build_nodepool(pool_name, nodeclass_name, types, role=role, node_labels=cluster_node_labels)
+            nodepool = build_nodepool(pool_name, nodeclass_name, types, role=role)
             nodepool_yaml = yaml.dump(nodepool, default_flow_style=False, sort_keys=False)
             print(f"Creating NodePool {pool_name} with types={list(types)}")
             
@@ -231,7 +189,7 @@ def handler(event, context):
         
         # Create default NodePool for instance groups without node-role
         default_pool_name = f"{nodepool_prefix}-default"
-        default_nodepool = build_nodepool(default_pool_name, nodeclass_name, default_types, is_default=True, node_labels=cluster_node_labels)
+        default_nodepool = build_nodepool(default_pool_name, nodeclass_name, default_types, is_default=True)
         default_nodepool_yaml = yaml.dump(default_nodepool, default_flow_style=False, sort_keys=False)
         print(f"Creating default NodePool with types={list(default_types)}")
         
