@@ -800,21 +800,6 @@ Resources:
     Metadata:
       aws:cdk:path: ObservabilityCfnTemplate/GrafanaServiceAccountLambdaRole
     Condition: IsAmgAllowed
-  HyperPodObservabilityControllerPodIdentityAssociation:
-    Type: AWS::EKS::PodIdentityAssociation
-    Properties:
-      ClusterName:
-        Ref: EKSClusterName
-      Namespace: hyperpod-observability
-      RoleArn:
-        Fn::If:
-          - CreateHyperPodObservabilityRoleCondition
-          - Fn::GetAtt:
-              - HyperPodObservabilityAddonRole
-              - Arn
-          - Ref: HyperPodObservabilityRole
-      ServiceAccount: hyperpod-observability-controller-manager
-    Condition: CreateObservabilityAddonCondition
   GrafanaServiceAccountLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:

@@ -2132,6 +2132,10 @@ Resources:
                     - Outputs.HyperPodClusterArn
               - Effect: Allow
                 Action:
+                  - sagemaker:ListClusters
+                Resource: '*'
+              - Effect: Allow
+                Action:
                   - sts:GetCallerIdentity
                 Resource: '*'
 
