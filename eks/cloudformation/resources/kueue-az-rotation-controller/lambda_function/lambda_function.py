@@ -1,5 +1,5 @@
 import boto3
-import cfnresponse
+from botocore.exceptions import ClientError
 import hashlib
 import json
 import os
@@ -87,6 +87,17 @@ def _setup_kubeconfig(cluster_name, region):
     os.environ["KUBECONFIG"] = kubeconfig_path
 
 
+def _safe_setup_kubeconfig(cluster_name, region):
+    try:
+        _setup_kubeconfig(cluster_name, region)
+        return True, ""
+    except ClientError as exc:
+        code = (exc.response or {}).get("Error", {}).get("Code", "")
+        if code in ("ResourceNotFoundException", "ResourceNotFound"):
+            return False, f"EKS cluster {cluster_name} not found"
+        raise
+
+
 def _apply_resource(obj):
     _run(["kubectl", "apply", "-f", "-"], input_text=json.dumps(obj))
 
@@ -99,6 +110,20 @@ def _delete_resource(kind, name, namespace=None):
         _run(cmd, timeout=60)
     except subprocess.CalledProcessError as exc:
         print(f"Warning: failed to delete {kind} {name}: {exc.stderr}")
+
+
+def _deployment_ready(namespace, name):
+    raw = _run(["kubectl", "get", "deployment", "-n", namespace, name, "-o", "json"], timeout=30)
+    data = json.loads(raw)
+    spec = data.get("spec", {})
+    status = data.get("status", {})
+    desired = int(spec.get("replicas", 1) or 1)
+    available = int(status.get("availableReplicas", 0) or 0)
+    ready = int(status.get("readyReplicas", 0) or 0)
+    updated = int(status.get("updatedReplicas", 0) or 0)
+    ok = available >= 1 and ready >= 1 and updated >= desired
+    detail = f"desired={desired} available={available} ready={ready} updated={updated}"
+    return ok, detail
 
 
 def _resolve_fsx_az_name(subnet_id, az_id, region):
@@ -310,22 +335,75 @@ def _delete_resources():
     _delete_resource("clusterrole", role_name)
     _delete_resource("serviceaccount", rotation_sa, namespace=rotation_namespace)
 
+def _build_response(status, reason, data, attempt, max_attempts, delay_seconds):
+    return {
+        "Status": status,
+        "Reason": reason,
+        "Data": data or {},
+        "Attempt": attempt,
+        "MaxAttempts": max_attempts,
+        "DelaySeconds": delay_seconds,
+    }
+
 
 def handler(event, context):
-    try:
-        request_type = event.get("RequestType")
-        if request_type == "Delete":
-            _delete_resources()
-            cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Status": "DELETED"})
-            return
+    request_type = event.get("RequestType") or "Create"
+    attempt = int(event.get("Attempt") or 0)
+    max_attempts = int(event.get("MaxAttempts") or os.environ.get("MAX_ATTEMPTS", "30"))
+    delay_seconds = int(event.get("DelaySeconds") or os.environ.get("DELAY_SECONDS", "30"))
+    next_attempt = attempt + 1
 
+    cluster_name = os.environ[CLUSTER_NAME_ENV]
+    region = os.environ.get(AWS_REGION_ENV, "us-east-1")
+
+    if request_type == "Delete":
+        try:
+            ok, msg = _safe_setup_kubeconfig(cluster_name, region)
+            if not ok:
+                return _build_response("SUCCESS", msg, {}, next_attempt, max_attempts, delay_seconds)
+            _delete_resources()
+            return _build_response(
+                "SUCCESS",
+                "Deleted Kueue AZ rotation controller resources",
+                {"Status": "DELETED"},
+                next_attempt,
+                max_attempts,
+                delay_seconds,
+            )
+        except Exception as exc:
+            print(f"Delete failed: {exc}")
+            return _build_response("FAILED", str(exc), {}, next_attempt, max_attempts, delay_seconds)
+
+    ok, msg = _safe_setup_kubeconfig(cluster_name, region)
+    if not ok:
+        return _build_response("NOT_READY", msg, {}, next_attempt, max_attempts, delay_seconds)
+
+    try:
         data = _create_resources()
-        cfnresponse.send(event, context, cfnresponse.SUCCESS, data)
     except Exception as exc:
-        print(f"Error: {exc}")
-        cfnresponse.send(
-            event,
-            context,
-            cfnresponse.FAILED,
-            {"Status": "FAILED", "Reason": str(exc)},
-        )
+        print(f"Error creating resources: {exc}")
+        return _build_response("FAILED", str(exc), {}, next_attempt, max_attempts, delay_seconds)
+
+    try:
+        ready, detail = _deployment_ready(data["Namespace"], data["Deployment"])
+        if not ready:
+            return _build_response(
+                "NOT_READY",
+                f"Rotation controller deployment not ready: {detail}",
+                data,
+                next_attempt,
+                max_attempts,
+                delay_seconds,
+            )
+    except Exception as exc:
+        print(f"Readiness check failed: {exc}")
+        return _build_response("NOT_READY", str(exc), data, next_attempt, max_attempts, delay_seconds)
+
+    return _build_response(
+        "SUCCESS",
+        "Kueue AZ rotation controller deployed",
+        data,
+        next_attempt,
+        max_attempts,
+        delay_seconds,
+    )
