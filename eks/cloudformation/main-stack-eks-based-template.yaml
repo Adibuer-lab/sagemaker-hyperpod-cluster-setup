@@ -2384,6 +2384,38 @@ Resources:
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/CertManagerStack
     Condition: InstallCertManagerCondition
+  CertManagerReadinessStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL:
+        Fn::If:
+          - CustomBucketCondition
+          - Fn::Sub: https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/cert-manager-readiness-template.yaml
+          - Fn::Sub: >-
+              https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/cert-manager-readiness-template.yaml
+      Parameters:
+        ResourceNamePrefix:
+          Ref: ResourceNamePrefix
+        EKSClusterName:
+          Fn::If:
+            - CreateEKSClusterStackCondition
+            - Fn::GetAtt:
+                - EKSClusterStack
+                - Outputs.EKSClusterName
+            - Ref: EKSClusterName
+        CustomResourceS3Bucket:
+          Fn::If:
+            - CustomBucketCondition
+            - Ref: CustomBucketName
+            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
+    DependsOn:
+      - CertManagerStack
+      - CertManagerReadinessStack
+      - EKSClusterStack
+      - HyperPodClusterStack
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/CertManagerReadinessStack
+    Condition: EnableHPTrainingOperatorFeatureCondition
   TaskGovernanceClusterPolicyLambdaStack:
     Type: AWS::CloudFormation::Stack
     Properties:

@@ -36,6 +36,7 @@ run karpenter-setup generate-karpenter-setup-lambda-func.sh
 run hyperpod-association-waiter generate-hyperpod-association-waiter-lambda-func.sh
 run cfn-stepfunction-starter generate-cfn-stepfunction-starter-lambda-func.sh
 run cfn-response-sender generate-cfn-response-sender-lambda-func.sh
+run cert-manager-readiness generate-cert-manager-readiness-lambda-func.sh
 run kueue-external-frameworks-patch generate-kueue-external-frameworks-patch-lambda-func.sh
 run kueue-az-placement generate-kueue-az-placement-lambda-func.sh
 run kueue-az-rotation-controller generate-kueue-az-rotation-controller-lambda-func.sh
