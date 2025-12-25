@@ -3140,6 +3140,7 @@ Resources:
             - Ref: EKSClusterName
     DependsOn:
       - CertManagerStack
+      - CertManagerReadinessStack
       - EKSClusterStack
       - HyperPodClusterStack
     Metadata:
