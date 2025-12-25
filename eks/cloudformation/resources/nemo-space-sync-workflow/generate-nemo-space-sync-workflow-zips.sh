@@ -22,3 +22,4 @@ zip_lambda delete_profile
 zip_lambda check_profile
 zip_lambda create_profile
 zip_lambda create_space
+zip_lambda update_space

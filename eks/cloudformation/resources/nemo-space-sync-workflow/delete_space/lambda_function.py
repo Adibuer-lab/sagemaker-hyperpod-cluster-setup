@@ -5,7 +5,7 @@ sagemaker = boto3.client("sagemaker")
 
 def handler(event, context):
     domain_id = event["domain_id"]
-    space_name = event["default_space_name"]
+    space_name = event["space_name"]
     try:
         sagemaker.delete_space(DomainId=domain_id, SpaceName=space_name)
         event["space_delete_requested"] = True
