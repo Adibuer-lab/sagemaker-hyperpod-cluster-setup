@@ -3,8 +3,10 @@ import os
 import time
 
 import boto3
+from botocore.exceptions import ClientError
 
 sagemaker = boto3.client("sagemaker")
+events = boto3.client("events")
 
 
 def s3_shared_uri_from_bucket_arn(bucket_arn: str) -> str:
@@ -22,6 +24,151 @@ def s3_shared_uri_from_bucket_arn(bucket_arn: str) -> str:
     else:
         base = value
     return f"s3://{base}/shared"
+
+
+def normalize_tags(raw_tags: list | None) -> list:
+    normalized = []
+    for tag in raw_tags or []:
+        key = tag.get("Key") or tag.get("key")
+        value = tag.get("Value") or tag.get("value")
+        if key is None or value is None:
+            continue
+        normalized.append({"Key": key, "Value": value})
+    return normalized
+
+
+def merge_required_tags(tags: list, required: dict) -> list:
+    merged = {t["Key"]: t["Value"] for t in tags}
+    for key, value in required.items():
+        merged.setdefault(key, value)
+    return [{"Key": k, "Value": v} for k, v in merged.items()]
+
+
+def merge_custom_file_system_configs(
+    existing: list | None, *, fsx_id: str, fsx_path: str, s3_uri: str
+) -> list:
+    merged = []
+    for cfg in existing or []:
+        if "FSxLustreFileSystemConfig" in cfg or "S3FileSystemConfig" in cfg:
+            continue
+        merged.append(cfg)
+    merged.append(
+        {
+            "FSxLustreFileSystemConfig": {
+                "FileSystemId": fsx_id,
+                "FileSystemPath": fsx_path,
+            }
+        }
+    )
+    merged.append(
+        {
+            "S3FileSystemConfig": {
+                "S3Uri": s3_uri,
+                "MountPath": "shared",
+            }
+        }
+    )
+    return merged
+
+
+def has_custom_fs(configs: list | None, key: str) -> bool:
+    return any(key in (cfg or {}) for cfg in (configs or []))
+
+
+def wait_for_user_profile_deleted(domain_id, user_id):
+    for _ in range(60):
+        try:
+            sagemaker.describe_user_profile(
+                DomainId=domain_id, UserProfileName=user_id
+            )
+        except sagemaker.exceptions.ResourceNotFound:
+            return True
+        time.sleep(5)
+    return False
+
+
+def wait_for_space_deleted(domain_id, space_name):
+    for _ in range(60):
+        try:
+            sagemaker.describe_space(DomainId=domain_id, SpaceName=space_name)
+        except sagemaker.exceptions.ResourceNotFound:
+            return True
+        time.sleep(5)
+    return False
+
+
+def list_spaces_for_owner(domain_id, user_id):
+    spaces = []
+    token = None
+    while True:
+        args = {"DomainIdEquals": domain_id}
+        if token:
+            args["NextToken"] = token
+        resp = sagemaker.list_spaces(**args)
+        for space in resp.get("Spaces", []):
+            owner = (space.get("OwnershipSettingsSummary") or {}).get(
+                "OwnerUserProfileName"
+            )
+            if owner == user_id:
+                spaces.append(space.get("SpaceName"))
+        token = resp.get("NextToken")
+        if not token:
+            break
+    return spaces
+
+
+def delete_apps_for_space(domain_id, space_name):
+    token = None
+    while True:
+        args = {"DomainIdEquals": domain_id, "SpaceNameEquals": space_name}
+        if token:
+            args["NextToken"] = token
+        resp = sagemaker.list_apps(**args)
+        for app in resp.get("Apps", []):
+            try:
+                sagemaker.delete_app(
+                    DomainId=domain_id,
+                    SpaceName=space_name,
+                    AppType=app.get("AppType"),
+                    AppName=app.get("AppName"),
+                )
+            except ClientError as exc:
+                if exc.response.get("Error", {}).get("Code") != "ValidationException":
+                    raise
+        token = resp.get("NextToken")
+        if not token:
+            break
+
+
+def wait_for_apps_deleted(domain_id, space_name, *, max_attempts=60, sleep_seconds=5):
+    for _ in range(max_attempts):
+        token = None
+        apps = []
+        while True:
+            args = {"DomainIdEquals": domain_id, "SpaceNameEquals": space_name}
+            if token:
+                args["NextToken"] = token
+            resp = sagemaker.list_apps(**args)
+            apps.extend(resp.get("Apps", []))
+            token = resp.get("NextToken")
+            if not token:
+                break
+        if not apps:
+            return True
+        delete_apps_for_space(domain_id, space_name)
+        time.sleep(sleep_seconds)
+    return False
+
+
+def disable_rule(rule_name: str):
+    events.disable_rule(Name=rule_name)
+
+
+def get_profile_tags(user_profile_arn):
+    try:
+        return sagemaker.list_tags(ResourceArn=user_profile_arn).get("Tags", [])
+    except ClientError:
+        return []
 
 
 def wait_for_user_profile(domain_id, user_id, phase, *, allow_update_failed=False):
@@ -50,6 +197,7 @@ def handler(event, context):
     detail = event.get("detail", {})
     request_params = detail.get("requestParameters", {})
     tags = {t.get("key"): t.get("value") for t in request_params.get("tags", [])}
+    space_tags = normalize_tags(request_params.get("tags", []))
 
     if tags.get("AmazonDataZoneProject") != os.environ["PROJECT_ID"]:
         print("Skipping - different project")
@@ -63,6 +211,24 @@ def handler(event, context):
     fsx_id = os.environ.get("FSX_FILESYSTEM_ID")
     s3_bucket_arn = os.environ.get("S3_BUCKET_ARN", "")
     s3_shared_uri = s3_shared_uri_from_bucket_arn(s3_bucket_arn)
+    rule_name = os.environ.get("SPACE_SYNC_RULE_NAME") or (
+        f"nemo-space-sync-{os.environ['PROJECT_ID']}"
+    )
+        try:
+            disable_rule(rule_name)
+            print(f"Disabled rule {rule_name} (one-time run)")
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code")
+            print(f"Failed to disable rule {rule_name} ({code}); continuing")
+    space_tags = merge_required_tags(
+        space_tags,
+        {
+            "AmazonDataZoneProject": os.environ["PROJECT_ID"],
+            "AmazonDataZoneDomain": os.environ["DZ_DOMAIN_ID"],
+            "AmazonDataZoneScopeName": os.environ["SCOPE_NAME"],
+            "AmazonDataZoneUser": user_id,
+        },
+    )
 
     if not fsx_id:
         print("FSX_FILESYSTEM_ID not set")
@@ -77,45 +243,100 @@ def handler(event, context):
     if pre_status in {"Failed", "Delete_Failed"}:
         print(f"UserProfile in terminal state before update: {pre_status}")
         raise RuntimeError(f"UserProfile in terminal state before update: {pre_status}")
-    if pre_status == "Update_Failed":
-        print("UserProfile is Update_Failed; retrying update")
 
-    print(f"Updating UserProfile {user_id} with FSx in domain {target_domain}")
-    sagemaker.update_user_profile(
-        DomainId=target_domain,
-        UserProfileName=user_id,
-        UserSettings={
-            "CustomFileSystemConfigs": [
+    space_name = f"nemo-{user_id}"
+    default_space_name = f"default-{user_id}"
+    owned_spaces = list_spaces_for_owner(target_domain, user_id)
+
+    if space_name in owned_spaces:
+        print(f"Space {space_name} already exists; skipping create and profile changes")
+        return {"statusCode": 200}
+
+    non_default_spaces = [
+        name for name in owned_spaces if name not in {default_space_name, space_name}
+    ]
+    can_recreate_profile = owned_spaces == [default_space_name]
+
+    if non_default_spaces:
+        print(
+            "Found non-default owned spaces; leaving user profile unchanged and "
+            "creating nemo space only"
+        )
+    elif can_recreate_profile:
+        print(
+            "Only default space exists; deleting it to recreate user profile with "
+            "FSx and S3"
+        )
+        current = sagemaker.describe_user_profile(
+            DomainId=target_domain, UserProfileName=user_id
+        )
+        current_settings = current.get("UserSettings") or {}
+        current_custom = current_settings.get("CustomFileSystemConfigs") or []
+        merged_custom = merge_custom_file_system_configs(
+            current_custom, fsx_id=fsx_id, fsx_path=f"/{fsx_id}", s3_uri=s3_shared_uri
+        )
+        current_settings["CustomFileSystemConfigs"] = merged_custom
+
+        profile_tags = get_profile_tags(current.get("UserProfileArn"))
+        if not profile_tags:
+            profile_tags = space_tags
+        else:
+            profile_tags = merge_required_tags(
+                normalize_tags(profile_tags),
                 {
-                    "FSxLustreFileSystemConfig": {
-                        "FileSystemId": fsx_id,
-                        "FileSystemPath": f"/{fsx_id}",
-                    }
+                    "AmazonDataZoneProject": os.environ["PROJECT_ID"],
+                    "AmazonDataZoneDomain": os.environ["DZ_DOMAIN_ID"],
+                    "AmazonDataZoneScopeName": os.environ["SCOPE_NAME"],
+                    "AmazonDataZoneUser": user_id,
                 },
-                {
-                    "S3FileSystemConfig": {
-                        "S3Uri": s3_shared_uri,
-                        "MountPath": "shared",
-                    }
-                }
-            ]
-        },
-    )
-
-    post_status = wait_for_user_profile(target_domain, user_id, "after update")
-    if post_status != "InService":
-        failure_reason = None
-        try:
-            resp = sagemaker.describe_user_profile(
-                DomainId=target_domain, UserProfileName=user_id
             )
-            failure_reason = resp.get("FailureReason")
-        except Exception:
+
+        delete_apps_for_space(target_domain, default_space_name)
+        if not wait_for_apps_deleted(target_domain, default_space_name):
+            raise RuntimeError(f"Timed out deleting apps in space {default_space_name}")
+        try:
+            sagemaker.delete_space(
+                DomainId=target_domain, SpaceName=default_space_name
+            )
+        except sagemaker.exceptions.ResourceNotFound:
             pass
-        print("UserProfile not InService after update")
-        raise RuntimeError(
-            f"UserProfile not InService after update (status={post_status}, "
-            f"failure_reason={failure_reason})"
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") == "ResourceInUse":
+                if not wait_for_apps_deleted(target_domain, default_space_name):
+                    raise RuntimeError(
+                        f"Timed out deleting apps in space {default_space_name}"
+                    )
+                sagemaker.delete_space(
+                    DomainId=target_domain, SpaceName=default_space_name
+                )
+            else:
+                raise
+        if not wait_for_space_deleted(target_domain, default_space_name):
+            raise RuntimeError(f"Timed out deleting space {default_space_name}")
+
+        sagemaker.delete_user_profile(
+            DomainId=target_domain, UserProfileName=user_id
+        )
+        if not wait_for_user_profile_deleted(target_domain, user_id):
+            raise RuntimeError("Timed out deleting user profile")
+
+        sagemaker.create_user_profile(
+            DomainId=target_domain,
+            UserProfileName=user_id,
+            UserSettings=current_settings,
+            Tags=profile_tags,
+        )
+        post_status = wait_for_user_profile(
+            target_domain, user_id, "after recreate"
+        )
+        if post_status != "InService":
+            raise RuntimeError(
+                f"UserProfile not InService after recreate (status={post_status})"
+            )
+    else:
+        print(
+            "No owned spaces found; leaving user profile unchanged and creating nemo "
+            "space only"
         )
 
     region = os.environ.get("AWS_REGION", "")
@@ -155,12 +376,7 @@ def handler(event, context):
                 },
             ],
         },
-        Tags=[
-            {"Key": "AmazonDataZoneProject", "Value": os.environ["PROJECT_ID"]},
-            {"Key": "AmazonDataZoneDomain", "Value": os.environ["DZ_DOMAIN_ID"]},
-            {"Key": "AmazonDataZoneScopeName", "Value": os.environ["SCOPE_NAME"]},
-            {"Key": "AmazonDataZoneUser", "Value": user_id},
-        ],
+        Tags=space_tags,
     )
     print(f"Created Space: {space_name}")
     return {"statusCode": 200}
