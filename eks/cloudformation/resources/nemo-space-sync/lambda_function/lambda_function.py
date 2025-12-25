@@ -7,7 +7,7 @@ import boto3
 sagemaker = boto3.client("sagemaker")
 
 
-def wait_for_user_profile(domain_id, user_id, phase):
+def wait_for_user_profile(domain_id, user_id, phase, *, allow_update_failed=False):
     print(f"Waiting for UserProfile {user_id} to be InService ({phase}) in domain {domain_id}")
     for _ in range(30):
         try:
@@ -17,11 +17,15 @@ def wait_for_user_profile(domain_id, user_id, phase):
             status = resp.get("Status")
             print(f"UserProfile status: {status}")
             if status == "InService":
-                return True
+                return status
+            if allow_update_failed and status == "Update_Failed":
+                return status
+            if status in {"Failed", "Delete_Failed"}:
+                return status
         except sagemaker.exceptions.ResourceNotFound:
             print("UserProfile not found yet, waiting...")
         time.sleep(2)
-    return False
+    return None
 
 
 def handler(event, context):
@@ -45,9 +49,17 @@ def handler(event, context):
         print("FSX_FILESYSTEM_ID not set")
         raise RuntimeError("FSX_FILESYSTEM_ID not set")
 
-    if not wait_for_user_profile(target_domain, user_id, "before update"):
-        print("UserProfile not InService before update")
-        raise RuntimeError("UserProfile not InService before update")
+    pre_status = wait_for_user_profile(
+        target_domain, user_id, "before update", allow_update_failed=True
+    )
+    if pre_status is None:
+        print("UserProfile not InService before update (timeout)")
+        raise RuntimeError("UserProfile not InService before update (timeout)")
+    if pre_status in {"Failed", "Delete_Failed"}:
+        print(f"UserProfile in terminal state before update: {pre_status}")
+        raise RuntimeError(f"UserProfile in terminal state before update: {pre_status}")
+    if pre_status == "Update_Failed":
+        print("UserProfile is Update_Failed; retrying update")
 
     print(f"Updating UserProfile {user_id} with FSx in domain {target_domain}")
     sagemaker.update_user_profile(
@@ -65,9 +77,21 @@ def handler(event, context):
         },
     )
 
-    if not wait_for_user_profile(target_domain, user_id, "after update"):
+    post_status = wait_for_user_profile(target_domain, user_id, "after update")
+    if post_status != "InService":
+        failure_reason = None
+        try:
+            resp = sagemaker.describe_user_profile(
+                DomainId=target_domain, UserProfileName=user_id
+            )
+            failure_reason = resp.get("FailureReason")
+        except Exception:
+            pass
         print("UserProfile not InService after update")
-        raise RuntimeError("UserProfile not InService after update")
+        raise RuntimeError(
+            f"UserProfile not InService after update (status={post_status}, "
+            f"failure_reason={failure_reason})"
+        )
 
     region = os.environ.get("AWS_REGION", "")
     image_arn = (
