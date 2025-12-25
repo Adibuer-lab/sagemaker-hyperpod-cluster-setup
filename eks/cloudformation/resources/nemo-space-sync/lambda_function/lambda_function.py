@@ -7,6 +7,23 @@ import boto3
 sagemaker = boto3.client("sagemaker")
 
 
+def s3_shared_uri_from_bucket_arn(bucket_arn: str) -> str:
+    if not bucket_arn:
+        raise RuntimeError("S3_BUCKET_ARN not set")
+    value = bucket_arn.strip()
+    if value.startswith("arn:aws:s3:::"):
+        value = value[len("arn:aws:s3:::") :]
+    elif value.startswith("s3://"):
+        value = value[len("s3://") :]
+    value = value.strip("/")
+    parts = value.split("/")
+    if len(parts) > 1:
+        base = "/".join(parts[:-1])
+    else:
+        base = value
+    return f"s3://{base}/shared"
+
+
 def wait_for_user_profile(domain_id, user_id, phase, *, allow_update_failed=False):
     print(f"Waiting for UserProfile {user_id} to be InService ({phase}) in domain {domain_id}")
     for _ in range(30):
@@ -44,6 +61,8 @@ def handler(event, context):
     user_id = request_params.get("userProfileName")
     target_domain = os.environ["TARGET_DOMAIN_ID"]
     fsx_id = os.environ.get("FSX_FILESYSTEM_ID")
+    s3_bucket_arn = os.environ.get("S3_BUCKET_ARN", "")
+    s3_shared_uri = s3_shared_uri_from_bucket_arn(s3_bucket_arn)
 
     if not fsx_id:
         print("FSX_FILESYSTEM_ID not set")
@@ -70,7 +89,13 @@ def handler(event, context):
                 {
                     "FSxLustreFileSystemConfig": {
                         "FileSystemId": fsx_id,
-                        "FileSystemPath": "/lustre",
+                        "FileSystemPath": f"/{fsx_id}",
+                    }
+                },
+                {
+                    "S3FileSystemConfig": {
+                        "S3Uri": s3_shared_uri,
+                        "MountPath": "shared",
                     }
                 }
             ]
@@ -122,7 +147,12 @@ def handler(event, context):
                     "FSxLustreFileSystem": {
                         "FileSystemId": fsx_id,
                     }
-                }
+                },
+                {
+                    "S3FileSystem": {
+                        "S3Uri": s3_shared_uri,
+                    }
+                },
             ],
         },
         Tags=[
