@@ -43,11 +43,11 @@ def handler(event, context):
 
     if not fsx_id:
         print("FSX_FILESYSTEM_ID not set")
-        return {"statusCode": 500}
+        raise RuntimeError("FSX_FILESYSTEM_ID not set")
 
     if not wait_for_user_profile(target_domain, user_id, "before update"):
         print("UserProfile not InService before update")
-        return {"statusCode": 500}
+        raise RuntimeError("UserProfile not InService before update")
 
     print(f"Updating UserProfile {user_id} with FSx in domain {target_domain}")
     sagemaker.update_user_profile(
@@ -67,7 +67,7 @@ def handler(event, context):
 
     if not wait_for_user_profile(target_domain, user_id, "after update"):
         print("UserProfile not InService after update")
-        return {"statusCode": 500}
+        raise RuntimeError("UserProfile not InService after update")
 
     region = os.environ.get("AWS_REGION", "")
     image_arn = (
