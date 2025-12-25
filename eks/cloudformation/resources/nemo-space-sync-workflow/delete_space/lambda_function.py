@@ -3,7 +3,6 @@ from botocore.exceptions import ClientError
 
 sagemaker = boto3.client("sagemaker")
 
-
 def handler(event, context):
     domain_id = event["domain_id"]
     space_name = event["default_space_name"]
