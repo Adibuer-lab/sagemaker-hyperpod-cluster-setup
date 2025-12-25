@@ -2,7 +2,7 @@
 FROM --platform=linux/amd64 amazonlinux:2023
 
 # Install required tools
-RUN yum install -y zip unzip tar gzip findutils which file util-linux wget curl
+RUN yum install -y zip unzip tar gzip findutils which file util-linux wget
 
 # Set working directory
 WORKDIR /layer

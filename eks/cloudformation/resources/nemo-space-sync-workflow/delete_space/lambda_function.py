@@ -12,10 +12,14 @@ def handler(event, context):
         event["space_delete_requested"] = True
         event["space_delete_retry"] = False
     except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code")
+        error = exc.response.get("Error", {})
+        code = error.get("Code")
+        message = (error.get("Message") or "").lower()
         if code == "ResourceNotFound":
             event["space_delete_retry"] = False
-        elif code == "ResourceInUse":
+        elif code == "ResourceInUse" or (
+            code == "ValidationException" and ("app" in message or "in use" in message)
+        ):
             event["space_delete_retry"] = True
         else:
             raise
