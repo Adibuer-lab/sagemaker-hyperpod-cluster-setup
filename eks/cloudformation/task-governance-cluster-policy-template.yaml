@@ -5,6 +5,10 @@ Parameters:
   HyperPodClusterArn:
     Type: String
     Description: ARN of the HyperPod cluster
+  TaskGovernanceAddonLambdaExportSuffix:
+    Type: String
+    Default: default
+    Description: Suffix to ensure Task Governance Lambda export names are unique per deployment
   TaskGovernanceAddonVersion:
     Type: String
     Default: ''
@@ -36,7 +40,8 @@ Resources:
     Type: Custom::ClusterSchedulerConfig
     Properties:
       ServiceToken:
-        Fn::ImportValue: TaskGovernanceAddonLambdaArn
+        Fn::ImportValue:
+          Fn::Sub: TaskGovernanceAddonLambdaArn-${TaskGovernanceAddonLambdaExportSuffix}
       ClusterArn:
         Ref: HyperPodClusterArn
       Name:

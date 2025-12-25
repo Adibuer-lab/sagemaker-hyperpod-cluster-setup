@@ -1,4 +1,8 @@
 Parameters:
+  TaskGovernanceAddonLambdaExportSuffix:
+    Type: String
+    Default: default
+    Description: Suffix to ensure Task Governance Lambda export names are unique per deployment
   Stage:
     Type: String
     Default: prod
@@ -70,4 +74,5 @@ Outputs:
         - TaskGovernancePolicyLambda
         - Arn
     Export:
-      Name: TaskGovernanceAddonLambdaArn
+      Name:
+        Fn::Sub: TaskGovernanceAddonLambdaArn-${TaskGovernanceAddonLambdaExportSuffix}

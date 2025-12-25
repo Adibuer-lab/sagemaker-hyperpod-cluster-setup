@@ -428,6 +428,10 @@ Metadata:
       CreateGrafanaWorkspace:
         default: Create Grafana Workspace
 Parameters:
+  TaskGovernanceAddonLambdaExportSuffix:
+    Type: String
+    Default: default
+    Description: Suffix to ensure Task Governance Lambda export names are unique per deployment
   Stage:
     Type: String
     Default: prod
@@ -2428,6 +2432,8 @@ Resources:
       Parameters:
         Stage:
           Ref: Stage
+        TaskGovernanceAddonLambdaExportSuffix:
+          Ref: TaskGovernanceAddonLambdaExportSuffix
         CustomResourceS3Bucket:
           Fn::If:
             - CustomBucketCondition
@@ -2449,6 +2455,8 @@ Resources:
           - Fn::Sub: >-
               https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/task-governance-cluster-policy-template.yaml
       Parameters:
+        TaskGovernanceAddonLambdaExportSuffix:
+          Ref: TaskGovernanceAddonLambdaExportSuffix
         EKSClusterName:
           Fn::If:
             - CreateEKSClusterStackCondition
