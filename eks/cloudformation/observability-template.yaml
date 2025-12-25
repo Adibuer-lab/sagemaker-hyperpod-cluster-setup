@@ -92,7 +92,7 @@ Parameters:
     Description: The level of training metric for EKS AddOn.
   TaskGovernanceMetricLevel:
     Type: String
-    Default: DISABLED
+    Default: ADVANCED
     Description: The level of task governance metric for EKS AddOn.
   ScalingMetricLevel:
     Type: String
