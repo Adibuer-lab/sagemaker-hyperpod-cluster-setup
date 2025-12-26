@@ -31,9 +31,9 @@ Parameters:
   EksAvailabilityZones:
     Type: String
     Description: Comma-separated list of EKS-eligible AZ names
-  UserNamespaces:
+  CustomUserNamespaces:
     Type: String
-    Description: Comma-separated list of user workload namespaces
+    Description: Comma-separated list of custom workload namespaces for AZ rotation queues
   KueueLocalQueueName:
     Type: String
     Default: nemo-az-localqueue
@@ -146,7 +146,7 @@ Resources:
           EKS_AZ_NAMES:
             Ref: EksAvailabilityZones
           USER_NAMESPACES:
-            Ref: UserNamespaces
+            Ref: CustomUserNamespaces
           KUEUE_LOCAL_QUEUE_NAME:
             Ref: KueueLocalQueueName
           FSX_AVAILABILITY_ZONE_ID:

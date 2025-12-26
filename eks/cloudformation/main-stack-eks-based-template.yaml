@@ -93,6 +93,7 @@ Metadata:
           - DataScientistRole1
           - DataScientistRole1Namespaces
           - UserNamespaces
+          - CustomUserNamespaces
           - DataScientistRole2
           - DataScientistRole2Namespaces
           - DataScientistRole3
@@ -818,10 +819,15 @@ Parameters:
       to these namespaces. (optional)
   UserNamespaces:
     Type: String
-    Default: kubeflow
+    Default: hyperpod-ns-datascientist1
     Description: >-
       Comma-separated list of user workload namespaces (for FSx PVCs, workspaces, and other user-scoped resources). Use
       hyperpod-ns-<team> when task governance is enabled.
+  CustomUserNamespaces:
+    Type: String
+    Default: nemo-custom-ns
+    Description: >-
+      Comma-separated list of custom workload namespaces for AZ placement queues. Leave empty to disable custom queues.
   DataScientistRole2:
     Type: String
     Default: ''
@@ -1423,6 +1429,11 @@ Conditions:
       - Fn::Equals:
           - Ref: EnableKueueExternalFrameworkPatch
           - 'true'
+  HasCustomUserNamespaces:
+    Fn::Not:
+      - Fn::Equals:
+          - Ref: CustomUserNamespaces
+          - ''
   EnableKueueAzPlacementResourcesCondition:
     Fn::And:
       - Fn::Equals:
@@ -1437,6 +1448,7 @@ Conditions:
       - Fn::Equals:
           - Ref: EnableKueueAzPlacementResources
           - 'true'
+      - Condition: HasCustomUserNamespaces
   HasKueueAzRotationImage:
     Fn::Not:
       - Fn::Equals:
@@ -1460,6 +1472,7 @@ Conditions:
           - Ref: EnableKueueAzRotationController
           - 'true'
       - Condition: HasKueueAzRotationImage
+      - Condition: HasCustomUserNamespaces
   TaskGovernanceMetricLevelDisabled:
     Fn::Equals:
       - Ref: TaskGovernanceMetricLevel
@@ -2557,8 +2570,8 @@ Resources:
             - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
         EksAvailabilityZones:
           Ref: EksAvailabilityZones
-        UserNamespaces:
-          Ref: UserNamespaces
+        CustomUserNamespaces:
+          Ref: CustomUserNamespaces
         KueueResourceFlavorPrefix:
           Ref: KueueResourceFlavorPrefix
         KueueClusterQueueName:
@@ -2606,8 +2619,8 @@ Resources:
             - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
         EksAvailabilityZones:
           Ref: EksAvailabilityZones
-        UserNamespaces:
-          Ref: UserNamespaces
+        CustomUserNamespaces:
+          Ref: CustomUserNamespaces
         KueueLocalQueueName:
           Ref: KueueLocalQueueName
         FsxAvailabilityZoneId:

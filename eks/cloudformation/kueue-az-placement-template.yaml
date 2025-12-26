@@ -31,9 +31,9 @@ Parameters:
   EksAvailabilityZones:
     Type: String
     Description: Comma-separated list of EKS-eligible AZ names
-  UserNamespaces:
+  CustomUserNamespaces:
     Type: String
-    Description: Comma-separated list of user workload namespaces
+    Description: Comma-separated list of custom workload namespaces for AZ placement queues
   KueueResourceFlavorPrefix:
     Type: String
     Default: nemo-az
@@ -135,7 +135,7 @@ Resources:
           EKS_AZ_NAMES:
             Ref: EksAvailabilityZones
           USER_NAMESPACES:
-            Ref: UserNamespaces
+            Ref: CustomUserNamespaces
           KUEUE_FLAVOR_PREFIX:
             Ref: KueueResourceFlavorPrefix
           KUEUE_CLUSTER_QUEUE_NAME:
