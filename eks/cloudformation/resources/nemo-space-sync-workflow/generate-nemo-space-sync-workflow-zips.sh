@@ -14,6 +14,8 @@ zip_lambda() {
 }
 
 zip_lambda prepare
+zip_lambda prepare_update
+zip_lambda stop_apps
 zip_lambda delete_apps
 zip_lambda check_apps
 zip_lambda delete_space

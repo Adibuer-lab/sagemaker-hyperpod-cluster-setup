@@ -20,8 +20,14 @@ def handler(event, context):
     active_apps = [
         app for app in apps if (app.get("Status") or "").lower() != "deleted"
     ]
+    statuses = [(app.get("Status") or "").lower() for app in apps]
+    blocking_statuses = {"deleted", "stopped", "failed"}
+    apps_blocking_update = sum(
+        1 for status in statuses if status and status not in blocking_statuses
+    )
     event["apps_remaining"] = len(active_apps)
     event["apps_statuses"] = sorted(
         {app.get("Status") for app in apps if app.get("Status")}
     )
+    event["apps_blocking_update"] = apps_blocking_update
     return event
