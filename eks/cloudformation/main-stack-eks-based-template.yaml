@@ -2447,6 +2447,13 @@ Resources:
           Ref: Stage
         TaskGovernanceAddonLambdaExportSuffix:
           Ref: TaskGovernanceAddonLambdaExportSuffix
+        EKSClusterName:
+          Fn::If:
+            - CreateEKSClusterStackCondition
+            - Fn::GetAtt:
+                - EKSClusterStack
+                - Outputs.EKSClusterName
+            - Ref: EKSClusterName
         CustomResourceS3Bucket:
           Fn::If:
             - CustomBucketCondition

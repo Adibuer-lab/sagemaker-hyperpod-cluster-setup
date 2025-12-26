@@ -1,4 +1,7 @@
 Parameters:
+  EKSClusterName:
+    Type: String
+    Description: Name of the EKS cluster
   TaskGovernanceAddonLambdaExportSuffix:
     Type: String
     Default: default
@@ -48,6 +51,11 @@ Resources:
                 Action:
                   - eks:DescribeCluster
                 Resource: '*'
+              - Effect: Allow
+                Action:
+                  - eks:AssociateAccessPolicy
+                Resource:
+                  Fn::Sub: arn:aws:eks:${AWS::Region}:${AWS::AccountId}:access-entry/${EKSClusterName}/*
     Metadata:
       aws:cdk:path: TaskGovernanceClusterPolicyLambdaCfnTemplate/TaskGovernancePolicyLambdaRole
   TaskGovernancePolicyLambda:
