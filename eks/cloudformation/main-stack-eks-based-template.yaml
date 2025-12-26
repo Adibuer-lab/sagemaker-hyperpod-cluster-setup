@@ -40,6 +40,12 @@ Metadata:
           - KueueAzRotationEvictionReason
           - KueueWaitForPodsReadyTimeout
           - KueueWaitForPodsReadyRequeueBackoffLimit
+          - TaskGovernanceComputeQuotaInstanceType
+          - TaskGovernanceComputeQuotaInstanceCount
+          - TaskGovernanceComputeQuotaFairShareWeight
+          - TaskGovernanceComputeQuotaBorrowLimit
+          - TaskGovernanceComputeQuotaSharingStrategy
+          - TaskGovernanceComputeQuotaPreemptTeamTasks
           - TieredStorageConfig
           - TieredKVCacheConfig
       - Label:
@@ -382,6 +388,18 @@ Metadata:
         default: Kueue waitForPodsReady timeout
       KueueWaitForPodsReadyRequeueBackoffLimit:
         default: Kueue waitForPodsReady requeue backoff limit
+      TaskGovernanceComputeQuotaInstanceType:
+        default: Task Governance compute quota instance type
+      TaskGovernanceComputeQuotaInstanceCount:
+        default: Task Governance compute quota instance count
+      TaskGovernanceComputeQuotaFairShareWeight:
+        default: Task Governance compute quota fair-share weight
+      TaskGovernanceComputeQuotaBorrowLimit:
+        default: Task Governance compute quota borrow limit
+      TaskGovernanceComputeQuotaSharingStrategy:
+        default: Task Governance compute quota sharing strategy
+      TaskGovernanceComputeQuotaPreemptTeamTasks:
+        default: Task Governance compute quota preempt team tasks
       DevModeDisableRollback:
         default: Dev mode disable rollback (unused)
       TieredStorageConfig:
@@ -828,6 +846,38 @@ Parameters:
     Default: nemo-custom-ns
     Description: >-
       Comma-separated list of custom workload namespaces for AZ placement queues. Leave empty to disable custom queues.
+  TaskGovernanceComputeQuotaInstanceType:
+    Type: String
+    Default: ''
+    Description: >-
+      Instance type to allocate per team for Task Governance compute quota. Leave empty to disable compute quota creation.
+  TaskGovernanceComputeQuotaInstanceCount:
+    Type: Number
+    Default: 4
+    Description: Number of instances to allocate per team for Task Governance compute quota.
+  TaskGovernanceComputeQuotaFairShareWeight:
+    Type: Number
+    Default: 50
+    Description: Fair-share weight for Task Governance compute quota (0-100).
+  TaskGovernanceComputeQuotaBorrowLimit:
+    Type: Number
+    Default: 50
+    Description: Borrow limit percentage for Task Governance compute quota.
+  TaskGovernanceComputeQuotaSharingStrategy:
+    Type: String
+    Default: LendAndBorrow
+    AllowedValues:
+      - Lend
+      - DontLend
+      - LendAndBorrow
+    Description: Resource sharing strategy for Task Governance compute quota.
+  TaskGovernanceComputeQuotaPreemptTeamTasks:
+    Type: String
+    Default: LowerPriority
+    AllowedValues:
+      - Never
+      - LowerPriority
+    Description: Preemption behavior for Task Governance compute quota.
   DataScientistRole2:
     Type: String
     Default: ''
@@ -1383,6 +1433,15 @@ Conditions:
           - Fn::Equals:
               - Ref: DataScientistRole10
               - ''
+  DataScientistSetupNoTGCondition:
+    Fn::And:
+      - Condition: DataScientistSetupCondition
+      - Condition: TaskGovernanceDisabledCondition
+  DataScientistSetupTGCondition:
+    Fn::And:
+      - Condition: DataScientistSetupCondition
+      - Condition: TaskGovernanceEnabledCondition
+      - Condition: EnableTaskGovernanceComputeQuotaCondition
   CustomBucketCondition:
     Fn::Not:
       - Fn::Equals:
@@ -1434,6 +1493,36 @@ Conditions:
       - Fn::Equals:
           - Ref: CustomUserNamespaces
           - ''
+  HasUserNamespaces:
+    Fn::Not:
+      - Fn::Equals:
+          - Ref: UserNamespaces
+          - ''
+  HasComputeQuotaInstanceType:
+    Fn::Not:
+      - Fn::Equals:
+          - Ref: TaskGovernanceComputeQuotaInstanceType
+          - ''
+  HasComputeQuotaInstanceCount:
+    Fn::Not:
+      - Fn::Equals:
+          - Ref: TaskGovernanceComputeQuotaInstanceCount
+          - 0
+  EnableTaskGovernanceComputeQuotaCondition:
+    Fn::And:
+      - Fn::Equals:
+          - Ref: CreateTaskGovernanceClusterPolicyStack
+          - 'true'
+      - Condition: HasUserNamespaces
+      - Condition: HasComputeQuotaInstanceType
+      - Condition: HasComputeQuotaInstanceCount
+  TaskGovernanceEnabledCondition:
+    Fn::Equals:
+      - Ref: CreateTaskGovernanceClusterPolicyStack
+      - 'true'
+  TaskGovernanceDisabledCondition:
+    Fn::Not:
+      - Condition: TaskGovernanceEnabledCondition
   EnableKueueAzPlacementResourcesCondition:
     Fn::And:
       - Fn::Equals:
@@ -2550,6 +2639,57 @@ Resources:
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/KueueExternalFrameworksPatchStack
     Condition: EnableKueueExternalFrameworkPatchCondition
+  TaskGovernanceComputeQuotaStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL:
+        Fn::If:
+          - CustomBucketCondition
+          - Fn::Sub: >-
+              https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/task-governance-compute-quota-template.yaml
+          - Fn::Sub: >-
+              https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/task-governance-compute-quota-template.yaml
+      Parameters:
+        ResourceNamePrefix:
+          Ref: ResourceNamePrefix
+        EKSClusterName:
+          Fn::If:
+            - CreateEKSClusterStackCondition
+            - Fn::GetAtt:
+                - EKSClusterStack
+                - Outputs.EKSClusterName
+            - Ref: EKSClusterName
+        HyperPodClusterArn:
+          Fn::If:
+            - CreateHyperPodClusterStackCondition
+            - Fn::GetAtt:
+                - HyperPodClusterStack
+                - Outputs.HyperPodClusterArn
+            - Fn::Sub: arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:cluster/${HyperPodClusterName}
+        TeamNamespaces:
+          Ref: UserNamespaces
+        CustomResourceS3Bucket:
+          Fn::If:
+            - CustomBucketCondition
+            - Ref: CustomBucketName
+            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
+        ComputeQuotaInstanceType:
+          Ref: TaskGovernanceComputeQuotaInstanceType
+        ComputeQuotaInstanceCount:
+          Ref: TaskGovernanceComputeQuotaInstanceCount
+        ComputeQuotaFairShareWeight:
+          Ref: TaskGovernanceComputeQuotaFairShareWeight
+        ComputeQuotaBorrowLimit:
+          Ref: TaskGovernanceComputeQuotaBorrowLimit
+        ComputeQuotaSharingStrategy:
+          Ref: TaskGovernanceComputeQuotaSharingStrategy
+        ComputeQuotaPreemptTeamTasks:
+          Ref: TaskGovernanceComputeQuotaPreemptTeamTasks
+    DependsOn:
+      - TaskGovernanceClusterPolicyStack
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/TaskGovernanceComputeQuotaStack
+    Condition: EnableTaskGovernanceComputeQuotaCondition
   KueueAzPlacementResourcesStack:
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -3093,6 +3233,7 @@ Resources:
                 - HyperPodClusterStack
                 - Outputs.HyperPodClusterArn
             - ''
+        CreateNamespaces: 'true'
         DataScientistRole1:
           Ref: DataScientistRole1
         DataScientistRole1Namespaces:
@@ -3142,7 +3283,85 @@ Resources:
       - HyperPodClusterStack
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/DataScientistSetupStack
-    Condition: DataScientistSetupCondition
+    Condition: DataScientistSetupNoTGCondition
+  DataScientistSetupStackTG:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL:
+        Fn::If:
+          - CustomBucketCondition
+          - Fn::Sub: https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/data-scientist-setup-template.yaml
+          - Fn::Sub: >-
+              https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/data-scientist-setup-template.yaml
+      Parameters:
+        ResourceNamePrefix:
+          Ref: ResourceNamePrefix
+        EKSClusterName:
+          Fn::If:
+            - CreateEKSClusterStackCondition
+            - Fn::GetAtt:
+                - EKSClusterStack
+                - Outputs.EKSClusterName
+            - Ref: EKSClusterName
+        HPClusterArn:
+          Fn::If:
+            - CreateHyperPodClusterStackCondition
+            - Fn::GetAtt:
+                - HyperPodClusterStack
+                - Outputs.HyperPodClusterArn
+            - ''
+        CreateNamespaces: 'false'
+        DataScientistRole1:
+          Ref: DataScientistRole1
+        DataScientistRole1Namespaces:
+          Ref: DataScientistRole1Namespaces
+        DataScientistRole2:
+          Ref: DataScientistRole2
+        DataScientistRole2Namespaces:
+          Ref: DataScientistRole2Namespaces
+        DataScientistRole3:
+          Ref: DataScientistRole3
+        DataScientistRole3Namespaces:
+          Ref: DataScientistRole3Namespaces
+        DataScientistRole4:
+          Ref: DataScientistRole4
+        DataScientistRole4Namespaces:
+          Ref: DataScientistRole4Namespaces
+        DataScientistRole5:
+          Ref: DataScientistRole5
+        DataScientistRole5Namespaces:
+          Ref: DataScientistRole5Namespaces
+        DataScientistRole6:
+          Ref: DataScientistRole6
+        DataScientistRole6Namespaces:
+          Ref: DataScientistRole6Namespaces
+        DataScientistRole7:
+          Ref: DataScientistRole7
+        DataScientistRole7Namespaces:
+          Ref: DataScientistRole7Namespaces
+        DataScientistRole8:
+          Ref: DataScientistRole8
+        DataScientistRole8Namespaces:
+          Ref: DataScientistRole8Namespaces
+        DataScientistRole9:
+          Ref: DataScientistRole9
+        DataScientistRole9Namespaces:
+          Ref: DataScientistRole9Namespaces
+        DataScientistRole10:
+          Ref: DataScientistRole10
+        DataScientistRole10Namespaces:
+          Ref: DataScientistRole10Namespaces
+        CustomResourceS3Bucket:
+          Fn::If:
+            - CustomBucketCondition
+            - Ref: CustomBucketName
+            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
+    DependsOn:
+      - HyperPodClusterStack
+      - TaskGovernanceComputeQuotaStack
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/DataScientistSetupStackTG
+    Condition: DataScientistSetupTGCondition
   HPTrainingOperatorMainStack:
     Type: AWS::CloudFormation::Stack
     Properties:

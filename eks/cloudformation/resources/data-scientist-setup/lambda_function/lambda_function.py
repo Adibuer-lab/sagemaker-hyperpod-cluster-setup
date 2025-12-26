@@ -1,6 +1,7 @@
 import boto3
 import os
 import subprocess
+import time
 import cfnresponse
 from botocore.exceptions import ClientError
 import yaml
@@ -20,6 +21,9 @@ KUBERNETES_GROUP_BASE_NAMES = [
 ]
 
 IAM_POLICY_BASE_NAME = "HyperPodDataScientistUI"
+CREATE_NAMESPACES_ENV = "CREATE_NAMESPACES"
+NAMESPACE_WAIT_SECONDS_ENV = "NAMESPACE_WAIT_SECONDS"
+TG_NAMESPACE_PREFIX = "hyperpod-ns-"
 
 # Policy name function for data scientist access (cluster-specific)
 def get_policy_name(cluster_name: str) -> str:
@@ -319,7 +323,30 @@ def setup_kubeconfig(cluster_name, region):
         raise
 
 
-def deploy_rbac_policies(namespaces, kubernetes_groups, group_index):
+def _namespace_exists(namespace: str) -> bool:
+    try:
+        subprocess.run(
+            ["kubectl", "get", "namespace", namespace],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
+def _wait_for_namespace(namespace: str, timeout_seconds: int = 600) -> bool:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if _namespace_exists(namespace):
+            return True
+        time.sleep(10)
+    return False
+
+
+def deploy_rbac_policies(namespaces, kubernetes_groups, group_index, create_namespaces=True):
     """
     Deploy Kubernetes RBAC policies for data scientist access
     Supports single namespace (string) or multiple namespaces (list)
@@ -337,22 +364,44 @@ def deploy_rbac_policies(namespaces, kubernetes_groups, group_index):
     cluster_rbac_yaml = yield_cluster_rbac_yaml(cluster_group, group_index)
 
     try:
-        # Create namespaces if they don't exist
+        # Create namespaces if they don't exist (or wait for TG-managed namespaces)
         for namespace in namespace_list:
-            try:
-                subprocess.run(
-                    ["kubectl", "create", "namespace", namespace],
-                    check=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
-                print(f"Created namespace: {namespace}")
-            except subprocess.CalledProcessError as e:
-                if "AlreadyExists" in e.stderr:
-                    print(f"Namespace '{namespace}' already exists")
+            if create_namespaces:
+                try:
+                    subprocess.run(
+                        ["kubectl", "create", "namespace", namespace],
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    )
+                    print(f"Created namespace: {namespace}")
+                except subprocess.CalledProcessError as e:
+                    if "AlreadyExists" in e.stderr:
+                        print(f"Namespace '{namespace}' already exists")
+                    else:
+                        print(f"Warning: Failed to create namespace {namespace}: {e.stderr}")
+            else:
+                if namespace.startswith(TG_NAMESPACE_PREFIX):
+                    wait_seconds = int(os.environ.get(NAMESPACE_WAIT_SECONDS_ENV, "600"))
+                    print(f"Waiting for Task Governance namespace: {namespace}")
+                    if not _wait_for_namespace(namespace, timeout_seconds=wait_seconds):
+                        raise Exception(f"Timed out waiting for namespace {namespace}")
                 else:
-                    print(f"Warning: Failed to create namespace {namespace}: {e.stderr}")
+                    try:
+                        subprocess.run(
+                            ["kubectl", "create", "namespace", namespace],
+                            check=True,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True
+                        )
+                        print(f"Created namespace: {namespace}")
+                    except subprocess.CalledProcessError as e:
+                        if "AlreadyExists" in e.stderr:
+                            print(f"Namespace '{namespace}' already exists")
+                        else:
+                            print(f"Warning: Failed to create namespace {namespace}: {e.stderr}")
 
         # Apply cluster-level RBAC
         with open('/tmp/cluster-rbac.yaml', 'w') as f:
@@ -410,6 +459,9 @@ rules:
 - apiGroups: ["authorization.k8s.io"]
   resources: ["selfsubjectaccessreviews"]
   verbs: ["create"]
+- apiGroups: ["kueue.x-k8s.io"]
+  resources: ["clusterqueues", "workloadpriorityclasses", "localqueues"]
+  verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -500,6 +552,7 @@ def process_single_setup(mapping, index, cluster_name, hyperpod_cluster_arn, eks
     try:
         role_name, role_arn = resolve_role_from_mapping(mapping)
         namespaces = mapping.get('namespaces', 'default')
+        create_namespaces = os.environ.get(CREATE_NAMESPACES_ENV, 'true').strip().lower() in ('1', 'true', 'yes')
         
         print(f"Processing mapping {index}: Role={role_name}, Namespaces={namespaces}")
         
@@ -513,7 +566,7 @@ def process_single_setup(mapping, index, cluster_name, hyperpod_cluster_arn, eks
         create_eks_access_entry(role_arn, cluster_name, kubernetes_groups)
         
         # Deploy RBAC policies for this role's namespaces
-        deploy_rbac_policies(namespaces, kubernetes_groups, index)
+        deploy_rbac_policies(namespaces, kubernetes_groups, index, create_namespaces=create_namespaces)
         
         return {
             "SetupIndex": index,

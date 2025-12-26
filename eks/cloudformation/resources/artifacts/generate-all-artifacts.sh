@@ -36,6 +36,7 @@ run karpenter-setup generate-karpenter-setup-lambda-func.sh
 run kueue-az-placement generate-kueue-az-placement-lambda-func.sh
 run kueue-az-rotation-controller generate-kueue-az-rotation-controller-lambda-func.sh
 run kueue-external-frameworks-patch generate-kueue-external-frameworks-patch-lambda-func.sh
+run task-governance-compute-quota generate-task-governance-compute-quota-lambda-func.sh
 run nemo-space-sync-workflow generate-nemo-space-sync-workflow-zips.sh
 run observability-grafana-creator generate-observability-grafana-creator-lambda-zip.sh
 run observability-stack generate-observability-stack-lambda-zip.sh

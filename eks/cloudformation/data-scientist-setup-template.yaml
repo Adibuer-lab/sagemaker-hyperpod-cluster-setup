@@ -130,6 +130,13 @@ Parameters:
     Description: >-
       Comma-separated list of Kubernetes namespaces for DataScientistRole10. Model deployment permissions will be scoped
       to these namespaces. (optional)
+  CreateNamespaces:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Create namespaces if they do not exist.
   CustomResourceS3Bucket:
     Type: String
     Default: aws-sagemaker-hyperpod-cluster-setup-us-east-2-prod
@@ -469,6 +476,8 @@ Resources:
             Ref: DataScientistRole10
           DATA_SCIENTIST_ROLE_10_NAMESPACES:
             Ref: DataScientistRole10Namespaces
+          CREATE_NAMESPACES:
+            Ref: CreateNamespaces
           PATH: /opt/python/bin:/var/lang/bin:/usr/local/bin:/usr/bin/:/bin
           KUBECONFIG: /tmp/.kube/config
           LD_LIBRARY_PATH: /opt/python/lib
