@@ -462,6 +462,9 @@ rules:
 - apiGroups: ["kueue.x-k8s.io"]
   resources: ["clusterqueues", "workloadpriorityclasses", "localqueues"]
   verbs: ["get", "list", "watch"]
+- apiGroups: ["scheduling.k8s.io"]
+  resources: ["priorityclasses"]
+  verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
