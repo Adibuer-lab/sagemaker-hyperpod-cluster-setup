@@ -3119,7 +3119,6 @@ Resources:
             Ref: UserNamespaces
           CUSTOM_USER_NAMESPACES:
             Ref: CustomUserNamespaces
-          FSX_BOOTSTRAP_NODE_ROLE: system
           PATH: /opt/python/bin:/var/lang/bin:/usr/local/bin:/usr/bin/:/bin
           KUBECONFIG: /tmp/.kube/config
           LD_LIBRARY_PATH: /opt/python/lib
@@ -3146,7 +3145,6 @@ Resources:
           - FsxWritableDirBootstrapFunction
           - Arn
       Action: BootstrapWritableSubdir
-      NodeRole: system
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/FsxWritableDirBootstrapWithQuotaWithKueue
 
@@ -3163,7 +3161,6 @@ Resources:
           - FsxWritableDirBootstrapFunction
           - Arn
       Action: BootstrapWritableSubdir
-      NodeRole: system
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/FsxWritableDirBootstrapWithQuotaNoKueue
 
@@ -3180,7 +3177,6 @@ Resources:
           - FsxWritableDirBootstrapFunction
           - Arn
       Action: BootstrapWritableSubdir
-      NodeRole: system
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/FsxWritableDirBootstrapNoQuotaWithKueue
 
@@ -3197,7 +3193,6 @@ Resources:
           - FsxWritableDirBootstrapFunction
           - Arn
       Action: BootstrapWritableSubdir
-      NodeRole: system
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/FsxWritableDirBootstrapNoQuotaNoKueue
 
@@ -3214,7 +3209,6 @@ Resources:
           - FsxWritableDirBootstrapFunction
           - Arn
       Action: BootstrapWritableSubdir
-      NodeRole: system
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/FsxWritableDirBootstrapNoTG
 

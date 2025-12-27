@@ -167,8 +167,6 @@ spec:
       memory:
         min: 4Gi
         max: 32Gi
-  defaultNodeSelector:
-    node-role: workspace-cpu
   primaryStorage:
     defaultSize: 10Gi
     minSize: 5Gi
@@ -211,8 +209,6 @@ spec:
       memory:
         min: 8Gi
         max: 64Gi
-  defaultNodeSelector:
-    node-role: workspace-gpu
   primaryStorage:
     defaultSize: 20Gi
     minSize: 10Gi
@@ -253,8 +249,6 @@ spec:
       memory:
         min: 4Gi
         max: 32Gi
-  defaultNodeSelector:
-    node-role: workspace-cpu
   primaryStorage:
     defaultSize: 10Gi
     minSize: 5Gi
@@ -297,8 +291,6 @@ spec:
       memory:
         min: 8Gi
         max: 64Gi
-  defaultNodeSelector:
-    node-role: workspace-gpu
   primaryStorage:
     defaultSize: 20Gi
     minSize: 10Gi

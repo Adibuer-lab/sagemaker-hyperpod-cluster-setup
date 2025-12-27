@@ -111,8 +111,6 @@ Resources:
       AddonName: coredns
       ClusterName:
         Ref: EKSCluster
-      ConfigurationValues: >-
-        {"nodeSelector":{"node-role":"system"}}
       ResolveConflicts: OVERWRITE
     Metadata:
       aws:cdk:path: EksCfnTemplate/CoreDNSAddOn

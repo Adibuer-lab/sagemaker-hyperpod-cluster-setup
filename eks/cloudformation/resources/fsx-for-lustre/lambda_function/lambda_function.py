@@ -307,8 +307,8 @@ def _get_create_namespaces(event: dict | None = None, default: bool = True) -> b
 
 def _get_bootstrap_node_role(event: dict) -> str:
     props = (event or {}).get("ResourceProperties") or {}
-    node_role = str(props.get("NodeRole") or props.get("nodeRole") or os.environ.get("FSX_BOOTSTRAP_NODE_ROLE", "system")).strip()
-    return node_role or "system"
+    node_role = str(props.get("NodeRole") or props.get("nodeRole") or os.environ.get("FSX_BOOTSTRAP_NODE_ROLE", "")).strip()
+    return node_role
 
 
 def lambda_handler(event, context):

@@ -1,4 +1,4 @@
-Description: SageMaker Spaces WorkspaceTemplates with nodeSelector for node placement
+Description: SageMaker Spaces WorkspaceTemplates
 
 Parameters:
   ResourceNamePrefix:

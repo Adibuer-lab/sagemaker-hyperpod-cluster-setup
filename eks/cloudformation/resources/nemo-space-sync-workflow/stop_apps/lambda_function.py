@@ -23,7 +23,7 @@ def handler(event, context):
             if not _should_stop(app.get("Status")):
                 continue
             try:
-                sagemaker.stop_app(
+                sagemaker.delete_app(
                     DomainId=domain_id,
                     SpaceName=space_name,
                     AppType=app.get("AppType"),
