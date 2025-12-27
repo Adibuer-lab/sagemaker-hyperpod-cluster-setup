@@ -3401,6 +3401,8 @@ Resources:
           Ref: CreateGrafanaWorkspace
     DependsOn:
       - CertManagerStack
+      - CertManagerReadinessStack
+      - TaskGovernanceComputeQuotaStack
       - HyperPodClusterStack
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/ObservabilityStack
