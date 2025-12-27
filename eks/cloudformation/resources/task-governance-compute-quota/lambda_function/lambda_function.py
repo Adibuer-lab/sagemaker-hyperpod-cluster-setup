@@ -385,9 +385,13 @@ def _ensure_compute_quota(sm, cluster_arn, team_name, config, fair_share_weight,
     target = {"TeamName": team_name, "FairShareWeight": fair_share_weight}
     if existing:
         quota_id = existing["ComputeQuotaId"]
+        target_version = existing.get("ComputeQuotaVersion")
+        if target_version is None:
+            raise Exception(f"Missing ComputeQuotaVersion for compute quota {quota_id}")
         print(f"Updating compute quota for team {team_name}: {quota_id}")
         sm.update_compute_quota(
             ComputeQuotaId=quota_id,
+            TargetVersion=target_version,
             ComputeQuotaConfig=config,
             ComputeQuotaTarget=target,
             ActivationState="Enabled",
