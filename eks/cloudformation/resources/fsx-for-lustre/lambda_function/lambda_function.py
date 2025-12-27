@@ -162,11 +162,13 @@ def _bootstrap_fsx_writable_subdir(fsx_file_system_id: str, *, node_selector: di
     if not fs_id:
         return ""
 
-    user_namespaces = [ns.strip() for ns in os.environ.get("USER_NAMESPACES", "default").split(",") if ns.strip()]
-    if not user_namespaces:
-        user_namespaces = ["default"]
+    custom_namespaces = _parse_csv(os.environ.get("CUSTOM_USER_NAMESPACES", ""))
+    user_namespaces = _parse_csv(os.environ.get("USER_NAMESPACES", ""))
+    namespace_candidates = custom_namespaces + user_namespaces
+    if not namespace_candidates:
+        namespace_candidates = ["default"]
 
-    namespace = user_namespaces[0]
+    namespace = namespace_candidates[0]
     pvc_name = "fsx-claim"
     target_subdir = fs_id
     target_path = f"/{target_subdir}"

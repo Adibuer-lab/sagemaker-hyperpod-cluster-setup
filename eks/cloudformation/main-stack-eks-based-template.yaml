@@ -3117,6 +3117,8 @@ Resources:
               - Outputs.FsxFileSystemId
           USER_NAMESPACES:
             Ref: UserNamespaces
+          CUSTOM_USER_NAMESPACES:
+            Ref: CustomUserNamespaces
           FSX_BOOTSTRAP_NODE_ROLE: system
           PATH: /opt/python/bin:/var/lang/bin:/usr/local/bin:/usr/bin/:/bin
           KUBECONFIG: /tmp/.kube/config
@@ -3851,3 +3853,16 @@ Outputs:
               - FsxStack
               - Outputs.FsxFileSystemId
     Condition: FsxWritableDirBootstrapCondition
+Rules:
+  RequireCustomUserNamespacesWithTG:
+    Assertions:
+      - Assert:
+          Fn::Or:
+            - Fn::Equals:
+                - Ref: CreateTaskGovernanceClusterPolicyStack
+                - 'false'
+            - Fn::Not:
+                - Fn::Equals:
+                    - Ref: CustomUserNamespaces
+                    - ''
+        AssertDescription: CustomUserNamespaces must be set when task governance is enabled.
