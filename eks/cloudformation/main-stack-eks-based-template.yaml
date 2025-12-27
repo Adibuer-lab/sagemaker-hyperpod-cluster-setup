@@ -1370,6 +1370,7 @@ Conditions:
     Fn::And:
       - Condition: CreateFsxStackCondition
       - Condition: CreateHyperPodClusterStackCondition
+      - Condition: HasAnyWorkloadNamespaces
   CreateRigCondition:
     Fn::Not:
       - Fn::Equals:
@@ -1498,6 +1499,10 @@ Conditions:
       - Fn::Equals:
           - Ref: UserNamespaces
           - ''
+  HasAnyWorkloadNamespaces:
+    Fn::Or:
+      - Condition: HasUserNamespaces
+      - Condition: HasCustomUserNamespaces
   HasComputeQuotaInstanceType:
     Fn::Not:
       - Fn::Equals:
@@ -1538,6 +1543,55 @@ Conditions:
           - Ref: EnableKueueAzPlacementResources
           - 'true'
       - Condition: HasCustomUserNamespaces
+  FsxPostTGPvcBaseCondition:
+    Fn::And:
+      - Condition: CreateFsxStackCondition
+      - Condition: EnableTaskGovernanceClusterPolicyCondition
+      - Condition: HasAnyWorkloadNamespaces
+  FsxPostTGPvcWithQuotaWithKueueCondition:
+    Fn::And:
+      - Condition: FsxPostTGPvcBaseCondition
+      - Condition: EnableTaskGovernanceComputeQuotaCondition
+      - Condition: EnableKueueAzPlacementResourcesCondition
+  FsxPostTGPvcWithQuotaNoKueueCondition:
+    Fn::And:
+      - Condition: FsxPostTGPvcBaseCondition
+      - Condition: EnableTaskGovernanceComputeQuotaCondition
+      - Fn::Not:
+          - Condition: EnableKueueAzPlacementResourcesCondition
+  FsxPostTGPvcNoQuotaWithKueueCondition:
+    Fn::And:
+      - Condition: FsxPostTGPvcBaseCondition
+      - Fn::Not:
+          - Condition: EnableTaskGovernanceComputeQuotaCondition
+      - Condition: EnableKueueAzPlacementResourcesCondition
+  FsxPostTGPvcNoQuotaNoKueueCondition:
+    Fn::And:
+      - Condition: FsxPostTGPvcBaseCondition
+      - Fn::Not:
+          - Condition: EnableTaskGovernanceComputeQuotaCondition
+      - Fn::Not:
+          - Condition: EnableKueueAzPlacementResourcesCondition
+  FsxBootstrapWithQuotaWithKueueCondition:
+    Fn::And:
+      - Condition: FsxWritableDirBootstrapCondition
+      - Condition: FsxPostTGPvcWithQuotaWithKueueCondition
+  FsxBootstrapWithQuotaNoKueueCondition:
+    Fn::And:
+      - Condition: FsxWritableDirBootstrapCondition
+      - Condition: FsxPostTGPvcWithQuotaNoKueueCondition
+  FsxBootstrapNoQuotaWithKueueCondition:
+    Fn::And:
+      - Condition: FsxWritableDirBootstrapCondition
+      - Condition: FsxPostTGPvcNoQuotaWithKueueCondition
+  FsxBootstrapNoQuotaNoKueueCondition:
+    Fn::And:
+      - Condition: FsxWritableDirBootstrapCondition
+      - Condition: FsxPostTGPvcNoQuotaNoKueueCondition
+  FsxBootstrapNoTGCondition:
+    Fn::And:
+      - Condition: FsxWritableDirBootstrapCondition
+      - Condition: TaskGovernanceDisabledCondition
   HasKueueAzRotationImage:
     Fn::Not:
       - Fn::Equals:
@@ -2861,9 +2915,89 @@ Resources:
           Ref: FsxFileSystemId
         UserNamespaces:
           Ref: UserNamespaces
+        CustomUserNamespaces:
+          Ref: CustomUserNamespaces
+        CreatePvcOnStack:
+          Fn::If:
+            - EnableTaskGovernanceClusterPolicyCondition
+            - 'false'
+            - 'true'
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/FsxStack
     Condition: CreateFsxStackCondition
+
+  FsxPvcPostTGWithQuotaWithKueue:
+    Type: AWS::CloudFormation::CustomResource
+    Condition: FsxPostTGPvcWithQuotaWithKueueCondition
+    DependsOn:
+      - FsxStack
+      - TaskGovernanceComputeQuotaStack
+      - KueueAzPlacementResourcesStack
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - FsxStack
+          - Outputs.FsxCustomResourceFunctionArn
+      Action: CreatePVCs
+      CreateNamespaces: false
+      TargetNamespaces:
+        Fn::Sub: ${UserNamespaces},${CustomUserNamespaces}
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/FsxPvcPostTGWithQuotaWithKueue
+
+  FsxPvcPostTGWithQuotaNoKueue:
+    Type: AWS::CloudFormation::CustomResource
+    Condition: FsxPostTGPvcWithQuotaNoKueueCondition
+    DependsOn:
+      - FsxStack
+      - TaskGovernanceComputeQuotaStack
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - FsxStack
+          - Outputs.FsxCustomResourceFunctionArn
+      Action: CreatePVCs
+      CreateNamespaces: false
+      TargetNamespaces:
+        Fn::Sub: ${UserNamespaces},${CustomUserNamespaces}
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/FsxPvcPostTGWithQuotaNoKueue
+
+  FsxPvcPostTGNoQuotaWithKueue:
+    Type: AWS::CloudFormation::CustomResource
+    Condition: FsxPostTGPvcNoQuotaWithKueueCondition
+    DependsOn:
+      - FsxStack
+      - KueueAzPlacementResourcesStack
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - FsxStack
+          - Outputs.FsxCustomResourceFunctionArn
+      Action: CreatePVCs
+      CreateNamespaces: false
+      TargetNamespaces:
+        Fn::Sub: ${UserNamespaces},${CustomUserNamespaces}
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/FsxPvcPostTGNoQuotaWithKueue
+
+  FsxPvcPostTGNoQuotaNoKueue:
+    Type: AWS::CloudFormation::CustomResource
+    Condition: FsxPostTGPvcNoQuotaNoKueueCondition
+    DependsOn:
+      - FsxStack
+      - TaskGovernanceClusterPolicyStack
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - FsxStack
+          - Outputs.FsxCustomResourceFunctionArn
+      Action: CreatePVCs
+      CreateNamespaces: false
+      TargetNamespaces:
+        Fn::Sub: ${UserNamespaces},${CustomUserNamespaces}
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/FsxPvcPostTGNoQuotaNoKueue
 
   # =============================================================================
   # FSX WRITABLE DIRECTORY BOOTSTRAP (post-HyperPod)
@@ -2997,9 +3131,77 @@ Resources:
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/FsxWritableDirBootstrapFunction
 
-  FsxWritableDirBootstrap:
+  FsxWritableDirBootstrapWithQuotaWithKueue:
     Type: AWS::CloudFormation::CustomResource
-    Condition: FsxWritableDirBootstrapCondition
+    Condition: FsxBootstrapWithQuotaWithKueueCondition
+    DependsOn:
+      - FsxPvcPostTGWithQuotaWithKueue
+      - HyperPodClusterStack
+      - FsxWritableDirBootstrapFunction
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - FsxWritableDirBootstrapFunction
+          - Arn
+      Action: BootstrapWritableSubdir
+      NodeRole: system
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/FsxWritableDirBootstrapWithQuotaWithKueue
+
+  FsxWritableDirBootstrapWithQuotaNoKueue:
+    Type: AWS::CloudFormation::CustomResource
+    Condition: FsxBootstrapWithQuotaNoKueueCondition
+    DependsOn:
+      - FsxPvcPostTGWithQuotaNoKueue
+      - HyperPodClusterStack
+      - FsxWritableDirBootstrapFunction
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - FsxWritableDirBootstrapFunction
+          - Arn
+      Action: BootstrapWritableSubdir
+      NodeRole: system
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/FsxWritableDirBootstrapWithQuotaNoKueue
+
+  FsxWritableDirBootstrapNoQuotaWithKueue:
+    Type: AWS::CloudFormation::CustomResource
+    Condition: FsxBootstrapNoQuotaWithKueueCondition
+    DependsOn:
+      - FsxPvcPostTGNoQuotaWithKueue
+      - HyperPodClusterStack
+      - FsxWritableDirBootstrapFunction
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - FsxWritableDirBootstrapFunction
+          - Arn
+      Action: BootstrapWritableSubdir
+      NodeRole: system
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/FsxWritableDirBootstrapNoQuotaWithKueue
+
+  FsxWritableDirBootstrapNoQuotaNoKueue:
+    Type: AWS::CloudFormation::CustomResource
+    Condition: FsxBootstrapNoQuotaNoKueueCondition
+    DependsOn:
+      - FsxPvcPostTGNoQuotaNoKueue
+      - HyperPodClusterStack
+      - FsxWritableDirBootstrapFunction
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - FsxWritableDirBootstrapFunction
+          - Arn
+      Action: BootstrapWritableSubdir
+      NodeRole: system
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/FsxWritableDirBootstrapNoQuotaNoKueue
+
+  FsxWritableDirBootstrapNoTG:
+    Type: AWS::CloudFormation::CustomResource
+    Condition: FsxBootstrapNoTGCondition
     DependsOn:
       - FsxStack
       - HyperPodClusterStack
@@ -3012,7 +3214,7 @@ Resources:
       Action: BootstrapWritableSubdir
       NodeRole: system
     Metadata:
-      aws:cdk:path: MainEksBasedCfnTemplate/FsxWritableDirBootstrap
+      aws:cdk:path: MainEksBasedCfnTemplate/FsxWritableDirBootstrapNoTG
 
   PrivateSubnetTagsStack:
     Type: AWS::CloudFormation::Stack
@@ -3642,7 +3844,10 @@ Outputs:
     Condition: CreateFsxStackCondition
   OutputFsxSageMakerFileSystemPath:
     Value:
-      Fn::GetAtt:
-        - FsxWritableDirBootstrap
-        - SageMakerFileSystemPath
+      Fn::Join:
+        - ''
+        - - '/'
+          - Fn::GetAtt:
+              - FsxStack
+              - Outputs.FsxFileSystemId
     Condition: FsxWritableDirBootstrapCondition

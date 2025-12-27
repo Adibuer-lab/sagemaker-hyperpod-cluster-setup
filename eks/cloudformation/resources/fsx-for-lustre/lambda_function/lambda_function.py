@@ -38,6 +38,20 @@ def _sanitize_k8s_name(value: str, max_length: int = 63) -> str:
     return s[:max_length].rstrip("-")
 
 
+def _parse_csv(value: str) -> list[str]:
+    return [v.strip() for v in (value or "").split(",") if v.strip()]
+
+
+def _dedupe_preserve(values: list[str]) -> list[str]:
+    seen = set()
+    out = []
+    for v in values:
+        if v not in seen:
+            seen.add(v)
+            out.append(v)
+    return out
+
+
 def _wait_pvc_bound(namespace: str, pvc_name: str, timeout_seconds: int = 300) -> None:
     start = time.time()
     while time.time() - start < timeout_seconds:
@@ -52,6 +66,14 @@ def _wait_pvc_bound(namespace: str, pvc_name: str, timeout_seconds: int = 300) -
             pass
         time.sleep(5)
     raise TimeoutError(f"Timed out waiting for PVC {namespace}/{pvc_name} to reach Bound")
+
+
+def _namespace_exists(namespace: str) -> bool:
+    try:
+        _kubectl(["get", "namespace", namespace, "-o", "json"], timeout_seconds=20)
+        return True
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False
 
 
 def _wait_for_kubectl_access(timeout_seconds: int = 180) -> None:
@@ -251,6 +273,34 @@ spec:
 def _get_action(event: dict) -> str:
     props = (event or {}).get("ResourceProperties") or {}
     return str(props.get("Action") or props.get("action") or "").strip()
+
+
+def _get_target_namespaces(event: dict | None = None, *, fallback_user_only: bool = True) -> list[str]:
+    props = (event or {}).get("ResourceProperties") or {}
+    target = props.get("TargetNamespaces") or props.get("targetNamespaces")
+    if target:
+        namespaces = _parse_csv(str(target))
+    else:
+        namespaces = _parse_csv(os.environ.get("USER_NAMESPACES", ""))
+        if not fallback_user_only:
+            namespaces += _parse_csv(os.environ.get("CUSTOM_USER_NAMESPACES", ""))
+    if not namespaces:
+        namespaces = ["default"]
+    return _dedupe_preserve(namespaces)
+
+
+def _get_create_namespaces(event: dict | None = None, default: bool = True) -> bool:
+    props = (event or {}).get("ResourceProperties") or {}
+    raw = props.get("CreateNamespaces")
+    if raw is None:
+        raw = props.get("createNamespaces")
+    if raw is None:
+        return default
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)):
+        return bool(raw)
+    return str(raw).strip().lower() in ("1", "true", "yes", "y")
 
 
 def _get_bootstrap_node_role(event: dict) -> str:
@@ -587,7 +637,7 @@ spec:
         raise
 
 
-def create_existing_fsx_resources(response_data):
+def create_existing_fsx_resources(response_data, *, namespaces: list[str] | None = None, create_namespaces: bool = True):
     """
     Create Kubernetes resources for existing FSx file system
     """
@@ -655,10 +705,14 @@ parameters:
         # 2. Create PersistentVolume and PersistentVolumeClaim in each user namespace
         # Note: PV is cluster-scoped but can only bind to ONE PVC. For multiple namespaces,
         # we create separate PVs (with unique names) pointing to the same FSx filesystem.
-        user_namespaces = os.environ.get('USER_NAMESPACES', 'default').split(',')
-        user_namespaces = [ns.strip() for ns in user_namespaces if ns.strip()]
-        if not user_namespaces:
-            user_namespaces = ['default']
+        if namespaces is None:
+            user_namespaces = _parse_csv(os.environ.get('USER_NAMESPACES', 'default'))
+            if not user_namespaces:
+                user_namespaces = ['default']
+        else:
+            user_namespaces = [ns.strip() for ns in namespaces if ns.strip()]
+            if not user_namespaces:
+                user_namespaces = ['default']
         
         created_pvcs = []
         for namespace in user_namespaces:
@@ -667,13 +721,17 @@ parameters:
             
             print(f"\nCreating PV and PVC for namespace {namespace}...")
             
-            # Ensure namespace exists
-            try:
-                _kubectl(["create", "namespace", namespace, "--dry-run=client", "-o", "yaml"], timeout_seconds=60)
-                ns_yaml = f'apiVersion: v1\nkind: Namespace\nmetadata:\n  name: {namespace}\n'
-                _kubectl(["apply", "-f", "-"], input_text=ns_yaml, timeout_seconds=60)
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-                pass  # Namespace may already exist
+            # Ensure namespace exists (or fail fast if creation disabled)
+            if create_namespaces:
+                try:
+                    _kubectl(["create", "namespace", namespace, "--dry-run=client", "-o", "yaml"], timeout_seconds=60)
+                    ns_yaml = f'apiVersion: v1\nkind: Namespace\nmetadata:\n  name: {namespace}\n'
+                    _kubectl(["apply", "-f", "-"], input_text=ns_yaml, timeout_seconds=60)
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                    pass  # Namespace may already exist
+            else:
+                if not _namespace_exists(namespace):
+                    raise Exception(f"Namespace {namespace} does not exist; create it before FSx PVCs")
             
             # Create namespace-specific PV pointing to the same FSx filesystem
             ns_pv_content = f"""apiVersion: v1
@@ -813,6 +871,25 @@ def on_create(event):
             )
             return response_data
 
+        if action == "CreatePVCs":
+            # Create PV/PVCs only (used for post-task-governance ordering).
+            for var in ["CLUSTER_NAME", "FSX_FILE_SYSTEM_ID", "AWS_REGION"]:
+                if var not in os.environ or not str(os.environ.get(var, "")).strip():
+                    raise ValueError(f"Missing required environment variable: {var} for CreatePVCs")
+
+            write_kubeconfig(os.environ["CLUSTER_NAME"], os.environ["AWS_REGION"])
+            _wait_for_kubectl_access(timeout_seconds=180)
+
+            namespaces = _get_target_namespaces(event, fallback_user_only=False)
+            create_namespaces = _get_create_namespaces(event, default=False)
+            create_existing_fsx_resources(
+                response_data,
+                namespaces=namespaces,
+                create_namespaces=create_namespaces,
+            )
+            response_data["SageMakerFileSystemPath"] = f"/{os.environ['FSX_FILE_SYSTEM_ID']}"
+            return response_data
+
         # Ensure required environment variables are set for the original Step1/Step2 behavior.
         required_env_vars = [
             'CLUSTER_NAME',
@@ -880,7 +957,12 @@ def on_create(event):
                 response_data["FSxVolumeId"] = os.environ['FSX_FILE_SYSTEM_ID']
                 
                 # Create Kubernetes resources for existing FSx file system
-                create_existing_fsx_resources(response_data)
+                namespaces = _get_target_namespaces(event, fallback_user_only=False)
+                create_existing_fsx_resources(
+                    response_data,
+                    namespaces=namespaces,
+                    create_namespaces=True,
+                )
                 response_data["SageMakerFileSystemPath"] = f"/{os.environ['FSX_FILE_SYSTEM_ID']}"
         
         return response_data
@@ -918,6 +1000,25 @@ def on_update(event):
             if var not in os.environ:
                 raise ValueError(f"Missing required environment variable: {var}")
         
+
+        action = _get_action(event)
+        if action == "CreatePVCs":
+            for var in ["CLUSTER_NAME", "FSX_FILE_SYSTEM_ID", "AWS_REGION"]:
+                if var not in os.environ or not str(os.environ.get(var, "")).strip():
+                    raise ValueError(f"Missing required environment variable: {var} for CreatePVCs")
+
+            write_kubeconfig(os.environ["CLUSTER_NAME"], os.environ["AWS_REGION"])
+            _wait_for_kubectl_access(timeout_seconds=180)
+
+            namespaces = _get_target_namespaces(event, fallback_user_only=False)
+            create_namespaces = _get_create_namespaces(event, default=False)
+            create_existing_fsx_resources(
+                response_data,
+                namespaces=namespaces,
+                create_namespaces=create_namespaces,
+            )
+            response_data["SageMakerFileSystemPath"] = f"/{os.environ.get('FSX_FILE_SYSTEM_ID', '').strip()}"
+            return response_data
 
         # Configure kubectl using boto3
         write_kubeconfig(os.environ['CLUSTER_NAME'], os.environ['AWS_REGION'])
@@ -968,7 +1069,12 @@ def on_update(event):
             if 'FSX_FILE_SYSTEM_ID' in os.environ:
                 response_data["FSxVolumeId"] = os.environ['FSX_FILE_SYSTEM_ID']
                 # Update Kubernetes resources for existing FSx file system
-                create_existing_fsx_resources(response_data)
+                namespaces = _get_target_namespaces(event, fallback_user_only=False)
+                create_existing_fsx_resources(
+                    response_data,
+                    namespaces=namespaces,
+                    create_namespaces=True,
+                )
             
         return response_data
 
@@ -998,6 +1104,31 @@ def on_delete(event):
             if var not in os.environ:
                 raise ValueError(f"Missing required environment variable: {var}")
 
+        action = _get_action(event)
+        if action == "CreatePVCs":
+            # Only clean up PV/PVCs for the requested namespaces.
+            write_kubeconfig(os.environ['CLUSTER_NAME'], os.environ['AWS_REGION'])
+
+            pvc_name = "fsx-claim"
+            user_namespaces = _get_target_namespaces(event, fallback_user_only=False)
+
+            for namespace in user_namespaces:
+                ns_pv_name = f"fsx-pv-{namespace}"
+                try:
+                    _kubectl(
+                        ["delete", "pvc", pvc_name, "-n", namespace, "--ignore-not-found=true"],
+                        timeout_seconds=60,
+                    )
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+                    print(f"Warning: Failed to delete PVC from {namespace}: {e}")
+
+                try:
+                    _kubectl(["delete", "pv", ns_pv_name, "--ignore-not-found=true"], timeout_seconds=60)
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+                    print(f"Warning: Failed to delete PV {ns_pv_name}: {e}")
+
+            return response_data
+
         # Configure kubectl using boto3
         write_kubeconfig(os.environ['CLUSTER_NAME'], os.environ['AWS_REGION'])
 
@@ -1006,11 +1137,8 @@ def on_delete(event):
         pv_name = "fsx-pv"
         sc_name = "fsx-sc"
         
-        # Get user namespaces for cleanup
-        user_namespaces = os.environ.get('USER_NAMESPACES', 'default').split(',')
-        user_namespaces = [ns.strip() for ns in user_namespaces if ns.strip()]
-        if not user_namespaces:
-            user_namespaces = ['default']
+        # Get namespaces for cleanup
+        user_namespaces = _get_target_namespaces(event, fallback_user_only=False)
         
         # Delete PVCs and PVs from all namespaces
         for namespace in user_namespaces:

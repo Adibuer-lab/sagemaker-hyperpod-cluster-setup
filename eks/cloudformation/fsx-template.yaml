@@ -79,6 +79,17 @@ Parameters:
     Type: String
     Default: 'kubeflow'
     Description: Comma-separated list of namespaces to create FSx PVC in (default kubeflow; use hyperpod-ns-<team> when task governance is enabled)
+  CustomUserNamespaces:
+    Type: String
+    Default: ''
+    Description: Comma-separated list of custom workload namespaces to create FSx PVC in (optional)
+  CreatePvcOnStack:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Whether to create FSx PV/PVCs during this stack (disable when task governance will create namespaces later)
 Conditions:
   UseFsxFileSystemIdCondition:
     Fn::Not:
@@ -101,6 +112,10 @@ Conditions:
       - Fn::Equals:
           - Ref: NfsSecurityGroupId
           - ''
+  CreatePvcOnStackCondition:
+    Fn::Equals:
+      - Ref: CreatePvcOnStack
+      - 'true'
 Resources:
   FsxLambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -453,6 +468,8 @@ Resources:
               - Ref: FSxLustreFileSystem
           USER_NAMESPACES:
             Ref: UserNamespaces
+          CUSTOM_USER_NAMESPACES:
+            Ref: CustomUserNamespaces
           PATH: /opt/python/bin:/var/lang/bin:/usr/local/bin:/usr/bin/:/bin
           GIT_EXEC_PATH: /opt/python/libexec/git-core
           KUBECONFIG: /tmp/.kube/config
@@ -504,6 +521,7 @@ Resources:
       - FSxCsiAddon
     Metadata:
       aws:cdk:path: FsxCfnTemplate/FsxCustomResourceStep2
+    Condition: CreatePvcOnStackCondition
 Outputs:
   FsxDeploymentComplete:
     Description: Indicates fsx deployment is complete
@@ -515,3 +533,9 @@ Outputs:
         - UseFsxFileSystemIdCondition
         - !Ref FsxFileSystemId
         - !Ref FSxLustreFileSystem
+  FsxCustomResourceFunctionArn:
+    Description: ARN of the FSx custom resource function
+    Value:
+      Fn::GetAtt:
+        - FsxCustomResourceFunction
+        - Arn
