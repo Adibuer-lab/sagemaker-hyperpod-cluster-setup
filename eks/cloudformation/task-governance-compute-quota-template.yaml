@@ -82,16 +82,33 @@ Resources:
               - Effect: Allow
                 Action:
                   - eks:DescribeCluster
+                  - eks:AssociateAccessPolicy
+                  - eks:ListAssociatedAccessPolicies
                 Resource:
                   Fn::Sub: arn:aws:eks:${AWS::Region}:${AWS::AccountId}:cluster/${EKSClusterName}
               - Effect: Allow
                 Action:
+                  - sagemaker:DescribeCluster
+                Resource:
+                  Ref: HyperPodClusterArn
+              - Effect: Allow
+                Action:
+                  - sagemaker:ListComputeQuotas
+                Resource: '*'
+              - Effect: Allow
+                Action:
                   - sagemaker:CreateComputeQuota
+                Resource:
+                  - Ref: HyperPodClusterArn
+                  - Fn::Sub: arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:compute-quota/*
+              - Effect: Allow
+                Action:
                   - sagemaker:DescribeComputeQuota
                   - sagemaker:UpdateComputeQuota
                   - sagemaker:DeleteComputeQuota
-                  - sagemaker:ListComputeQuotas
-                Resource: '*'
+                  - sagemaker:AddTags
+                Resource:
+                  Fn::Sub: arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:compute-quota/*
               - Effect: Allow
                 Action: sts:GetCallerIdentity
                 Resource: '*'
