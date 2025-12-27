@@ -385,6 +385,26 @@ def _ensure_compute_quota(sm, cluster_arn, team_name, config, fair_share_weight,
     target = {"TeamName": team_name, "FairShareWeight": fair_share_weight}
     if existing:
         quota_id = existing["ComputeQuotaId"]
+        status = (existing.get("Status") or "").upper()
+        if status == "CREATE_FAILED":
+            failure_reason = existing.get("FailureReason") or ""
+            print(f"Compute quota {quota_id} is in CREATE_FAILED ({failure_reason}); deleting and recreating.")
+            sm.delete_compute_quota(ComputeQuotaId=quota_id)
+            # Wait briefly for deletion to complete
+            deadline = time.time() + 300
+            while time.time() < deadline:
+                try:
+                    sm.describe_compute_quota(ComputeQuotaId=quota_id)
+                except sm.exceptions.ResourceNotFound:
+                    break
+                time.sleep(10)
+            else:
+                raise Exception(f"Timed out waiting for compute quota {quota_id} to delete")
+            existing = None
+        elif status in ("CREATING", "UPDATING", "DELETING"):
+            raise Exception(f"Compute quota {quota_id} is {status}; retry later")
+
+    if existing:
         target_version = existing.get("ComputeQuotaVersion")
         if target_version is None:
             raise Exception(f"Missing ComputeQuotaVersion for compute quota {quota_id}")
@@ -396,6 +416,7 @@ def _ensure_compute_quota(sm, cluster_arn, team_name, config, fair_share_weight,
             ComputeQuotaTarget=target,
             ActivationState="Enabled",
         )
+        _wait_for_compute_quota_ready(sm, quota_id)
         return quota_id
 
     quota_name = _compute_quota_name(team_name, name_prefix, cluster_id)
@@ -412,7 +433,9 @@ def _ensure_compute_quota(sm, cluster_arn, team_name, config, fair_share_weight,
         ActivationState="Enabled",
         Tags=tags,
     )
-    return response["ComputeQuotaId"]
+    quota_id = response["ComputeQuotaId"]
+    _wait_for_compute_quota_ready(sm, quota_id)
+    return quota_id
 
 
 def _delete_compute_quota(sm, team_name, cluster_arn):
@@ -424,6 +447,25 @@ def _delete_compute_quota(sm, team_name, cluster_arn):
     print(f"Deleting compute quota {quota_id} for team {team_name}")
     sm.delete_compute_quota(ComputeQuotaId=quota_id)
     return quota_id
+
+
+def _wait_for_compute_quota_ready(sm, quota_id, timeout_seconds=600, poll_seconds=10):
+    deadline = time.time() + timeout_seconds
+    last_status = None
+    while time.time() < deadline:
+        try:
+            desc = sm.describe_compute_quota(ComputeQuotaId=quota_id)
+        except sm.exceptions.ResourceNotFound:
+            raise Exception(f"Compute quota {quota_id} not found while waiting for readiness")
+        status = (desc.get("Status") or "").upper()
+        failure_reason = desc.get("FailureReason") or ""
+        if status == "CREATE_FAILED":
+            raise Exception(f"Compute quota {quota_id} CREATE_FAILED: {failure_reason}")
+        if status and status not in ("CREATING", "UPDATING", "DELETING"):
+            return desc
+        last_status = status
+        time.sleep(poll_seconds)
+    raise Exception(f"Timed out waiting for compute quota {quota_id} to become ready (last status: {last_status})")
 
 
 def _build_response(status, reason, data, attempt, max_attempts, delay_seconds):

@@ -84,8 +84,10 @@ Resources:
                   - eks:DescribeCluster
                   - eks:AssociateAccessPolicy
                   - eks:ListAssociatedAccessPolicies
+                  - eks:DescribeAccessEntry
                 Resource:
-                  Fn::Sub: arn:aws:eks:${AWS::Region}:${AWS::AccountId}:cluster/${EKSClusterName}
+                  - Fn::Sub: arn:aws:eks:${AWS::Region}:${AWS::AccountId}:cluster/${EKSClusterName}
+                  - Fn::Sub: arn:aws:eks:${AWS::Region}:${AWS::AccountId}:access-entry/${EKSClusterName}/*
               - Effect: Allow
                 Action:
                   - sagemaker:DescribeCluster
