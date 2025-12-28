@@ -197,7 +197,7 @@ spec:
       image: {FSX_BOOTSTRAP_IMAGE}
       securityContext:
         runAsUser: 0
-      command: ["sh", "-lc", "set -eux; mkdir -p /fsx/{target_subdir}; chmod 1777 /fsx/{target_subdir}; ls -ld /fsx /fsx/{target_subdir}"]
+      command: ["sh", "-lc", "set -eux; mkdir -p /fsx/{target_subdir}; chmod 0777 /fsx/{target_subdir}; ls -ld /fsx /fsx/{target_subdir}"]
       volumeMounts:
         - name: fsx
           mountPath: /fsx
