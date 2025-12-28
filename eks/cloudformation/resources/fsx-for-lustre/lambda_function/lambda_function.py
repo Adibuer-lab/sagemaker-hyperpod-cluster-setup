@@ -311,6 +311,100 @@ def _get_bootstrap_node_role(event: dict) -> str:
     return node_role
 
 
+def _get_fsx_file_system_id(event: dict) -> str:
+    props = (event or {}).get("ResourceProperties") or {}
+    fsx_id = (
+        props.get("FsxFileSystemId")
+        or props.get("FSxFileSystemId")
+        or props.get("FileSystemId")
+        or os.environ.get("FSX_FILE_SYSTEM_ID", "")
+    )
+    return str(fsx_id or "").strip()
+
+
+def _get_root_squash_request(event: dict) -> tuple[str, list[str]]:
+    props = (event or {}).get("ResourceProperties") or {}
+    root_squash = str(
+        props.get("RootSquashUidGid")
+        or props.get("rootSquashUidGid")
+        or props.get("RootSquash")
+        or props.get("rootSquash")
+        or ""
+    ).strip()
+    if root_squash and not re.match(r"^\d+:\d+$", root_squash):
+        raise ValueError(f"RootSquashUidGid must be in UID:GID format, got: {root_squash}")
+
+    no_squash_raw = None
+    if "NoSquashNids" in props:
+        no_squash_raw = props.get("NoSquashNids")
+    elif "noSquashNids" in props:
+        no_squash_raw = props.get("noSquashNids")
+
+    no_squash_nids: list[str] = []
+    if isinstance(no_squash_raw, list):
+        no_squash_nids = [str(v).strip() for v in no_squash_raw if str(v).strip()]
+    elif isinstance(no_squash_raw, str):
+        no_squash_nids = _parse_csv(no_squash_raw)
+    elif no_squash_raw is not None:
+        no_squash_nids = _parse_csv(str(no_squash_raw))
+
+    return root_squash, _dedupe_preserve(no_squash_nids)
+
+
+def _update_root_squash(event: dict) -> dict:
+    root_squash, no_squash_nids = _get_root_squash_request(event)
+    if not root_squash:
+        print("RootSquashUidGid not provided; skipping root squash update.")
+        return {"RootSquashStatus": "SKIPPED"}
+
+    fsx_file_system_id = _get_fsx_file_system_id(event)
+    if not fsx_file_system_id:
+        raise ValueError("Missing FSx file system ID for root squash update")
+
+    aws_region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or ""
+    if not aws_region:
+        raise ValueError("Missing AWS_REGION for root squash update")
+
+    fsx_client = boto3.client("fsx", region_name=aws_region)
+    fsx_response = fsx_client.describe_file_systems(FileSystemIds=[fsx_file_system_id])
+    if not fsx_response.get("FileSystems"):
+        raise ValueError(f"FSx file system {fsx_file_system_id} not found")
+
+    fsx_details = fsx_response["FileSystems"][0]
+    current_cfg = (fsx_details.get("LustreConfiguration") or {}).get("RootSquashConfiguration") or {}
+    current_root = str(current_cfg.get("RootSquash") or "").strip()
+    current_nids = [str(v).strip() for v in (current_cfg.get("NoSquashNids") or []) if str(v).strip()]
+
+    matches_root = root_squash == current_root
+    matches_nids = True
+    if no_squash_nids:
+        matches_nids = sorted(no_squash_nids) == sorted(current_nids)
+
+    if matches_root and matches_nids:
+        print(f"Root squash already set to {root_squash} (NoSquashNids unchanged).")
+        return {
+            "RootSquashStatus": "UNCHANGED",
+            "RootSquash": root_squash,
+            "NoSquashNids": ",".join(no_squash_nids),
+        }
+
+    update_cfg = {"RootSquash": root_squash}
+    if no_squash_nids:
+        update_cfg["NoSquashNids"] = no_squash_nids
+
+    print(f"Updating FSx {fsx_file_system_id} root squash to {root_squash}...")
+    fsx_client.update_file_system(
+        FileSystemId=fsx_file_system_id,
+        LustreConfiguration={"RootSquashConfiguration": update_cfg},
+    )
+
+    return {
+        "RootSquashStatus": "UPDATED",
+        "RootSquash": root_squash,
+        "NoSquashNids": ",".join(no_squash_nids),
+    }
+
+
 def lambda_handler(event, context):
     """
     Handle CloudFormation custom resource requests for managing FSx for Lustre file systems
@@ -873,6 +967,10 @@ def on_create(event):
             )
             return response_data
 
+        if action == "UpdateRootSquash":
+            response_data.update(_update_root_squash(event))
+            return response_data
+
         if action == "CreatePVCs":
             # Create PV/PVCs only (used for post-task-governance ordering).
             for var in ["CLUSTER_NAME", "FSX_FILE_SYSTEM_ID", "AWS_REGION"]:
@@ -985,6 +1083,11 @@ def on_update(event):
             "Reason": "FSx CSI driver updated successfully"
         }
 
+        action = _get_action(event)
+        if action == "UpdateRootSquash":
+            response_data.update(_update_root_squash(event))
+            return response_data
+
         # Verify required environment variables
         required_env_vars = [
             'CLUSTER_NAME',
@@ -1003,7 +1106,6 @@ def on_update(event):
                 raise ValueError(f"Missing required environment variable: {var}")
         
 
-        action = _get_action(event)
         if action == "CreatePVCs":
             for var in ["CLUSTER_NAME", "FSX_FILE_SYSTEM_ID", "AWS_REGION"]:
                 if var not in os.environ or not str(os.environ.get(var, "")).strip():
@@ -1107,6 +1209,8 @@ def on_delete(event):
                 raise ValueError(f"Missing required environment variable: {var}")
 
         action = _get_action(event)
+        if action == "UpdateRootSquash":
+            return response_data
         if action == "CreatePVCs":
             # Only clean up PV/PVCs for the requested namespaces.
             write_kubeconfig(os.environ['CLUSTER_NAME'], os.environ['AWS_REGION'])

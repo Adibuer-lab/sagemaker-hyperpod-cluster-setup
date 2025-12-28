@@ -391,6 +391,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - fsx:DescribeFileSystems
+                  - fsx:UpdateFileSystem
                 Resource: '*'
           PolicyName:
             Fn::Sub: ${ResourceNamePrefix}-FSxAccess

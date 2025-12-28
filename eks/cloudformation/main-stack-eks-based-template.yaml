@@ -1021,6 +1021,14 @@ Parameters:
     Type: String
     Default: ''
     Description: Existing FSx for Lustre file system
+  FsxRootSquashUidGid:
+    Type: String
+    Default: ''
+    Description: Optional root squash mapping in UID:GID format (e.g., 1000:100). Leave empty to skip.
+  FsxNoSquashNids:
+    Type: String
+    Default: ''
+    Description: Optional comma-separated list of Lustre NIDs exempt from root squash
   PrometheusWorkspaceId:
     Type: String
     Default: ''
@@ -1371,6 +1379,11 @@ Conditions:
       - Condition: CreateFsxStackCondition
       - Condition: CreateHyperPodClusterStackCondition
       - Condition: HasAnyWorkloadNamespaces
+  HasFsxRootSquashConfig:
+    Fn::Not:
+      - Fn::Equals:
+          - Ref: FsxRootSquashUidGid
+          - ''
   CreateRigCondition:
     Fn::Not:
       - Fn::Equals:
@@ -1592,6 +1605,32 @@ Conditions:
     Fn::And:
       - Condition: FsxWritableDirBootstrapCondition
       - Condition: TaskGovernanceDisabledCondition
+  FsxRootSquashAfterBootstrapWithQuotaWithKueueCondition:
+    Fn::And:
+      - Condition: FsxBootstrapWithQuotaWithKueueCondition
+      - Condition: HasFsxRootSquashConfig
+  FsxRootSquashAfterBootstrapWithQuotaNoKueueCondition:
+    Fn::And:
+      - Condition: FsxBootstrapWithQuotaNoKueueCondition
+      - Condition: HasFsxRootSquashConfig
+  FsxRootSquashAfterBootstrapNoQuotaWithKueueCondition:
+    Fn::And:
+      - Condition: FsxBootstrapNoQuotaWithKueueCondition
+      - Condition: HasFsxRootSquashConfig
+  FsxRootSquashAfterBootstrapNoQuotaNoKueueCondition:
+    Fn::And:
+      - Condition: FsxBootstrapNoQuotaNoKueueCondition
+      - Condition: HasFsxRootSquashConfig
+  FsxRootSquashAfterBootstrapNoTGCondition:
+    Fn::And:
+      - Condition: FsxBootstrapNoTGCondition
+      - Condition: HasFsxRootSquashConfig
+  FsxRootSquashNoBootstrapCondition:
+    Fn::And:
+      - Condition: CreateFsxStackCondition
+      - Condition: HasFsxRootSquashConfig
+      - Fn::Not:
+          - Condition: FsxWritableDirBootstrapCondition
   HasKueueAzRotationImage:
     Fn::Not:
       - Fn::Equals:
@@ -3211,6 +3250,141 @@ Resources:
       Action: BootstrapWritableSubdir
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/FsxWritableDirBootstrapNoTG
+
+  # =============================================================================
+  # FSX ROOT SQUASH (post-bootstrap)
+  # =============================================================================
+  FsxRootSquashAfterBootstrapWithQuotaWithKueue:
+    Type: AWS::CloudFormation::CustomResource
+    Condition: FsxRootSquashAfterBootstrapWithQuotaWithKueueCondition
+    DependsOn:
+      - FsxWritableDirBootstrapWithQuotaWithKueue
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - FsxStack
+          - Outputs.FsxCustomResourceFunctionArn
+      Action: UpdateRootSquash
+      FsxFileSystemId:
+        Fn::GetAtt:
+          - FsxStack
+          - Outputs.FsxFileSystemId
+      RootSquashUidGid:
+        Ref: FsxRootSquashUidGid
+      NoSquashNids:
+        Ref: FsxNoSquashNids
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/FsxRootSquashAfterBootstrapWithQuotaWithKueue
+
+  FsxRootSquashAfterBootstrapWithQuotaNoKueue:
+    Type: AWS::CloudFormation::CustomResource
+    Condition: FsxRootSquashAfterBootstrapWithQuotaNoKueueCondition
+    DependsOn:
+      - FsxWritableDirBootstrapWithQuotaNoKueue
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - FsxStack
+          - Outputs.FsxCustomResourceFunctionArn
+      Action: UpdateRootSquash
+      FsxFileSystemId:
+        Fn::GetAtt:
+          - FsxStack
+          - Outputs.FsxFileSystemId
+      RootSquashUidGid:
+        Ref: FsxRootSquashUidGid
+      NoSquashNids:
+        Ref: FsxNoSquashNids
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/FsxRootSquashAfterBootstrapWithQuotaNoKueue
+
+  FsxRootSquashAfterBootstrapNoQuotaWithKueue:
+    Type: AWS::CloudFormation::CustomResource
+    Condition: FsxRootSquashAfterBootstrapNoQuotaWithKueueCondition
+    DependsOn:
+      - FsxWritableDirBootstrapNoQuotaWithKueue
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - FsxStack
+          - Outputs.FsxCustomResourceFunctionArn
+      Action: UpdateRootSquash
+      FsxFileSystemId:
+        Fn::GetAtt:
+          - FsxStack
+          - Outputs.FsxFileSystemId
+      RootSquashUidGid:
+        Ref: FsxRootSquashUidGid
+      NoSquashNids:
+        Ref: FsxNoSquashNids
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/FsxRootSquashAfterBootstrapNoQuotaWithKueue
+
+  FsxRootSquashAfterBootstrapNoQuotaNoKueue:
+    Type: AWS::CloudFormation::CustomResource
+    Condition: FsxRootSquashAfterBootstrapNoQuotaNoKueueCondition
+    DependsOn:
+      - FsxWritableDirBootstrapNoQuotaNoKueue
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - FsxStack
+          - Outputs.FsxCustomResourceFunctionArn
+      Action: UpdateRootSquash
+      FsxFileSystemId:
+        Fn::GetAtt:
+          - FsxStack
+          - Outputs.FsxFileSystemId
+      RootSquashUidGid:
+        Ref: FsxRootSquashUidGid
+      NoSquashNids:
+        Ref: FsxNoSquashNids
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/FsxRootSquashAfterBootstrapNoQuotaNoKueue
+
+  FsxRootSquashAfterBootstrapNoTG:
+    Type: AWS::CloudFormation::CustomResource
+    Condition: FsxRootSquashAfterBootstrapNoTGCondition
+    DependsOn:
+      - FsxWritableDirBootstrapNoTG
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - FsxStack
+          - Outputs.FsxCustomResourceFunctionArn
+      Action: UpdateRootSquash
+      FsxFileSystemId:
+        Fn::GetAtt:
+          - FsxStack
+          - Outputs.FsxFileSystemId
+      RootSquashUidGid:
+        Ref: FsxRootSquashUidGid
+      NoSquashNids:
+        Ref: FsxNoSquashNids
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/FsxRootSquashAfterBootstrapNoTG
+
+  FsxRootSquashNoBootstrap:
+    Type: AWS::CloudFormation::CustomResource
+    Condition: FsxRootSquashNoBootstrapCondition
+    DependsOn:
+      - FsxStack
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - FsxStack
+          - Outputs.FsxCustomResourceFunctionArn
+      Action: UpdateRootSquash
+      FsxFileSystemId:
+        Fn::GetAtt:
+          - FsxStack
+          - Outputs.FsxFileSystemId
+      RootSquashUidGid:
+        Ref: FsxRootSquashUidGid
+      NoSquashNids:
+        Ref: FsxNoSquashNids
+    Metadata:
+      aws:cdk:path: MainEksBasedCfnTemplate/FsxRootSquashNoBootstrap
 
   PrivateSubnetTagsStack:
     Type: AWS::CloudFormation::Stack
