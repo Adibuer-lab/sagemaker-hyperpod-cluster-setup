@@ -27,17 +27,6 @@ Metadata:
           - TaskGovernanceAddonVersion
           - EnableKueueExternalFrameworkPatch
           - KueueExternalFrameworks
-          - EnableKueueAzPlacementResources
-          - KueueResourceFlavorPrefix
-          - KueueClusterQueueName
-          - KueueLocalQueueName
-          - EnableKueueAzRotationController
-          - KueueAzRotationImage
-          - KueueAzRotationNamespace
-          - KueueAzRotationServiceAccount
-          - KueueAzRotationLogLevel
-          - KueueAzRotationMaxRotations
-          - KueueAzRotationEvictionReason
           - KueueWaitForPodsReadyTimeout
           - KueueWaitForPodsReadyRequeueBackoffLimit
           - TaskGovernanceComputeQuotaInstanceType
@@ -362,28 +351,6 @@ Metadata:
         default: Patch Kueue external frameworks
       KueueExternalFrameworks:
         default: Kueue external frameworks
-      EnableKueueAzPlacementResources:
-        default: Create Kueue AZ placement resources
-      KueueResourceFlavorPrefix:
-        default: Kueue ResourceFlavor prefix
-      KueueClusterQueueName:
-        default: Kueue ClusterQueue name
-      KueueLocalQueueName:
-        default: Kueue LocalQueue name
-      EnableKueueAzRotationController:
-        default: Enable Kueue AZ rotation controller
-      KueueAzRotationImage:
-        default: Kueue AZ rotation controller image
-      KueueAzRotationNamespace:
-        default: Kueue AZ rotation controller namespace
-      KueueAzRotationServiceAccount:
-        default: Kueue AZ rotation controller service account
-      KueueAzRotationLogLevel:
-        default: Kueue AZ rotation controller log level
-      KueueAzRotationMaxRotations:
-        default: Kueue AZ rotation max attempts
-      KueueAzRotationEvictionReason:
-        default: Kueue eviction reason to trigger rotation
       KueueWaitForPodsReadyTimeout:
         default: Kueue waitForPodsReady timeout
       KueueWaitForPodsReadyRequeueBackoffLimit:
@@ -1216,64 +1183,6 @@ Parameters:
     Type: String
     Default: HyperPodPytorchJob.v1.sagemaker.amazonaws.com
     Description: Comma-separated list of Kueue external frameworks to add
-  EnableKueueAzPlacementResources:
-    Type: String
-    Default: 'false'
-    AllowedValues:
-      - 'true'
-      - 'false'
-    Description: Boolean to create Kueue AZ placement resources (ResourceFlavors, ClusterQueue, LocalQueues)
-  KueueResourceFlavorPrefix:
-    Type: String
-    Default: nemo-az
-    Description: Prefix for Kueue ResourceFlavor names
-  KueueClusterQueueName:
-    Type: String
-    Default: nemo-az-clusterqueue
-    Description: Name of the Kueue ClusterQueue for AZ placement
-  KueueLocalQueueName:
-    Type: String
-    Default: nemo-az-localqueue
-    Description: Name of the Kueue LocalQueue created in each user namespace
-  EnableKueueAzRotationController:
-    Type: String
-    Default: 'false'
-    AllowedValues:
-      - 'true'
-      - 'false'
-    Description: Enable the AZ rotation controller for Kueue workloads
-  KueueAzRotationImage:
-    Type: String
-    Default: ''
-    Description: Container image URI for the AZ rotation controller
-  KueueAzRotationNamespace:
-    Type: String
-    Default: kueue-system
-    Description: Namespace for the AZ rotation controller deployment
-  KueueAzRotationServiceAccount:
-    Type: String
-    Default: nemo-az-rotation-controller
-    Description: Service account name for the AZ rotation controller
-  KueueAzRotationLogLevel:
-    Type: String
-    Default: INFO
-    Description: Log level for the AZ rotation controller
-  KueueAzRotationMaxRotations:
-    Type: Number
-    Default: 0
-    Description: Maximum rotation attempts per workload (0 = auto)
-  KueueAzRotationEvictionReason:
-    Type: String
-    Default: PodsReadyTimeout
-    Description: Kueue eviction reason that triggers rotation
-  KueueAzRotationMinEvictions:
-    Type: Number
-    Default: 2
-    Description: Minimum distinct evictions before rotating queues
-  KueueAzRotationCooldownSeconds:
-    Type: Number
-    Default: 900
-    Description: Cooldown (seconds) between rotations for a workload
   KueueWaitForPodsReadyTimeout:
     Type: String
     Default: 30m
@@ -1541,62 +1450,24 @@ Conditions:
   TaskGovernanceDisabledCondition:
     Fn::Not:
       - Condition: TaskGovernanceEnabledCondition
-  EnableKueueAzPlacementResourcesCondition:
-    Fn::And:
-      - Fn::Equals:
-          - Ref: CreateEKSClusterStack
-          - 'true'
-      - Fn::Equals:
-          - Ref: CreateHyperPodClusterStack
-          - 'true'
-      - Fn::Equals:
-          - Ref: CreateTaskGovernanceClusterPolicyStack
-          - 'true'
-      - Fn::Equals:
-          - Ref: EnableKueueAzPlacementResources
-          - 'true'
-      - Condition: HasCustomUserNamespaces
   FsxPostTGPvcBaseCondition:
     Fn::And:
       - Condition: CreateFsxStackCondition
       - Condition: EnableTaskGovernanceClusterPolicyCondition
       - Condition: HasAnyWorkloadNamespaces
-  FsxPostTGPvcWithQuotaWithKueueCondition:
-    Fn::And:
-      - Condition: FsxPostTGPvcBaseCondition
-      - Condition: EnableTaskGovernanceComputeQuotaCondition
-      - Condition: EnableKueueAzPlacementResourcesCondition
   FsxPostTGPvcWithQuotaNoKueueCondition:
     Fn::And:
       - Condition: FsxPostTGPvcBaseCondition
       - Condition: EnableTaskGovernanceComputeQuotaCondition
-      - Fn::Not:
-          - Condition: EnableKueueAzPlacementResourcesCondition
-  FsxPostTGPvcNoQuotaWithKueueCondition:
-    Fn::And:
-      - Condition: FsxPostTGPvcBaseCondition
-      - Fn::Not:
-          - Condition: EnableTaskGovernanceComputeQuotaCondition
-      - Condition: EnableKueueAzPlacementResourcesCondition
   FsxPostTGPvcNoQuotaNoKueueCondition:
     Fn::And:
       - Condition: FsxPostTGPvcBaseCondition
       - Fn::Not:
           - Condition: EnableTaskGovernanceComputeQuotaCondition
-      - Fn::Not:
-          - Condition: EnableKueueAzPlacementResourcesCondition
-  FsxBootstrapWithQuotaWithKueueCondition:
-    Fn::And:
-      - Condition: FsxWritableDirBootstrapCondition
-      - Condition: FsxPostTGPvcWithQuotaWithKueueCondition
   FsxBootstrapWithQuotaNoKueueCondition:
     Fn::And:
       - Condition: FsxWritableDirBootstrapCondition
       - Condition: FsxPostTGPvcWithQuotaNoKueueCondition
-  FsxBootstrapNoQuotaWithKueueCondition:
-    Fn::And:
-      - Condition: FsxWritableDirBootstrapCondition
-      - Condition: FsxPostTGPvcNoQuotaWithKueueCondition
   FsxBootstrapNoQuotaNoKueueCondition:
     Fn::And:
       - Condition: FsxWritableDirBootstrapCondition
@@ -1605,17 +1476,9 @@ Conditions:
     Fn::And:
       - Condition: FsxWritableDirBootstrapCondition
       - Condition: TaskGovernanceDisabledCondition
-  FsxRootSquashAfterBootstrapWithQuotaWithKueueCondition:
-    Fn::And:
-      - Condition: FsxBootstrapWithQuotaWithKueueCondition
-      - Condition: HasFsxRootSquashConfig
   FsxRootSquashAfterBootstrapWithQuotaNoKueueCondition:
     Fn::And:
       - Condition: FsxBootstrapWithQuotaNoKueueCondition
-      - Condition: HasFsxRootSquashConfig
-  FsxRootSquashAfterBootstrapNoQuotaWithKueueCondition:
-    Fn::And:
-      - Condition: FsxBootstrapNoQuotaWithKueueCondition
       - Condition: HasFsxRootSquashConfig
   FsxRootSquashAfterBootstrapNoQuotaNoKueueCondition:
     Fn::And:
@@ -1631,30 +1494,6 @@ Conditions:
       - Condition: HasFsxRootSquashConfig
       - Fn::Not:
           - Condition: FsxWritableDirBootstrapCondition
-  HasKueueAzRotationImage:
-    Fn::Not:
-      - Fn::Equals:
-          - Ref: KueueAzRotationImage
-          - ''
-  EnableKueueAzRotationControllerCondition:
-    Fn::And:
-      - Fn::Equals:
-          - Ref: CreateEKSClusterStack
-          - 'true'
-      - Fn::Equals:
-          - Ref: CreateHyperPodClusterStack
-          - 'true'
-      - Fn::Equals:
-          - Ref: CreateTaskGovernanceClusterPolicyStack
-          - 'true'
-      - Fn::Equals:
-          - Ref: EnableKueueAzPlacementResources
-          - 'true'
-      - Fn::Equals:
-          - Ref: EnableKueueAzRotationController
-          - 'true'
-      - Condition: HasKueueAzRotationImage
-      - Condition: HasCustomUserNamespaces
   TaskGovernanceMetricLevelDisabled:
     Fn::Equals:
       - Ref: TaskGovernanceMetricLevel
@@ -2713,20 +2552,11 @@ Resources:
         ExternalFrameworks:
           Ref: KueueExternalFrameworks
         WaitForPodsReadyEnabled:
-          Fn::If:
-            - EnableKueueAzRotationControllerCondition
-            - 'true'
-            - ''
+          ''
         WaitForPodsReadyTimeout:
-          Fn::If:
-            - EnableKueueAzRotationControllerCondition
-            - Ref: KueueWaitForPodsReadyTimeout
-            - ''
+          Ref: KueueWaitForPodsReadyTimeout
         WaitForPodsReadyRequeueBackoffLimit:
-          Fn::If:
-            - EnableKueueAzRotationControllerCondition
-            - Ref: KueueWaitForPodsReadyRequeueBackoffLimit
-            - ''
+          Ref: KueueWaitForPodsReadyRequeueBackoffLimit
     DependsOn:
       - TaskGovernanceClusterPolicyStack
     Metadata:
@@ -2783,112 +2613,6 @@ Resources:
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/TaskGovernanceComputeQuotaStack
     Condition: EnableTaskGovernanceComputeQuotaCondition
-  KueueAzPlacementResourcesStack:
-    Type: AWS::CloudFormation::Stack
-    Properties:
-      TemplateURL:
-        Fn::If:
-          - CustomBucketCondition
-          - Fn::Sub: >-
-              https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/kueue-az-placement-template.yaml
-          - Fn::Sub: >-
-              https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/kueue-az-placement-template.yaml
-      Parameters:
-        ResourceNamePrefix:
-          Ref: ResourceNamePrefix
-        EKSClusterName:
-          Fn::If:
-            - CreateEKSClusterStackCondition
-            - Fn::GetAtt:
-                - EKSClusterStack
-                - Outputs.EKSClusterName
-            - Ref: EKSClusterName
-        CustomResourceS3Bucket:
-          Fn::If:
-            - CustomBucketCondition
-            - Ref: CustomBucketName
-            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
-        EksAvailabilityZones:
-          Ref: EksAvailabilityZones
-        CustomUserNamespaces:
-          Ref: CustomUserNamespaces
-        KueueResourceFlavorPrefix:
-          Ref: KueueResourceFlavorPrefix
-        KueueClusterQueueName:
-          Ref: KueueClusterQueueName
-        KueueLocalQueueName:
-          Ref: KueueLocalQueueName
-        EnablePerAzQueues:
-          Fn::If:
-            - EnableKueueAzRotationControllerCondition
-            - 'true'
-            - 'false'
-        FsxAvailabilityZoneId:
-          Ref: FsxAvailabilityZoneId
-        FsxSubnetId:
-          Ref: FsxSubnetId
-    DependsOn:
-      - TaskGovernanceClusterPolicyStack
-    Metadata:
-      aws:cdk:path: MainEksBasedCfnTemplate/KueueAzPlacementResourcesStack
-    Condition: EnableKueueAzPlacementResourcesCondition
-  KueueAzRotationControllerStack:
-    Type: AWS::CloudFormation::Stack
-    Properties:
-      TemplateURL:
-        Fn::If:
-          - CustomBucketCondition
-          - Fn::Sub: >-
-              https://${CustomBucketName}.s3.${AWS::Region}.amazonaws.com/templates/kueue-az-rotation-controller-template.yaml
-          - Fn::Sub: >-
-              https://aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}.s3.${AWS::Region}.amazonaws.com/templates/kueue-az-rotation-controller-template.yaml
-      Parameters:
-        ResourceNamePrefix:
-          Ref: ResourceNamePrefix
-        EKSClusterName:
-          Fn::If:
-            - CreateEKSClusterStackCondition
-            - Fn::GetAtt:
-                - EKSClusterStack
-                - Outputs.EKSClusterName
-            - Ref: EKSClusterName
-        CustomResourceS3Bucket:
-          Fn::If:
-            - CustomBucketCondition
-            - Ref: CustomBucketName
-            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
-        EksAvailabilityZones:
-          Ref: EksAvailabilityZones
-        CustomUserNamespaces:
-          Ref: CustomUserNamespaces
-        KueueLocalQueueName:
-          Ref: KueueLocalQueueName
-        FsxAvailabilityZoneId:
-          Ref: FsxAvailabilityZoneId
-        FsxSubnetId:
-          Ref: FsxSubnetId
-        KueueAzRotationImage:
-          Ref: KueueAzRotationImage
-        KueueAzRotationNamespace:
-          Ref: KueueAzRotationNamespace
-        KueueAzRotationServiceAccount:
-          Ref: KueueAzRotationServiceAccount
-        KueueAzRotationLogLevel:
-          Ref: KueueAzRotationLogLevel
-        KueueAzRotationMaxRotations:
-          Ref: KueueAzRotationMaxRotations
-        KueueAzRotationEvictionReason:
-          Ref: KueueAzRotationEvictionReason
-        KueueAzRotationMinEvictions:
-          Ref: KueueAzRotationMinEvictions
-        KueueAzRotationCooldownSeconds:
-          Ref: KueueAzRotationCooldownSeconds
-    DependsOn:
-      - TaskGovernanceClusterPolicyStack
-      - KueueAzPlacementResourcesStack
-    Metadata:
-      aws:cdk:path: MainEksBasedCfnTemplate/KueueAzRotationControllerStack
-    Condition: EnableKueueAzRotationControllerCondition
   FsxStack:
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -2965,25 +2689,6 @@ Resources:
       aws:cdk:path: MainEksBasedCfnTemplate/FsxStack
     Condition: CreateFsxStackCondition
 
-  FsxPvcPostTGWithQuotaWithKueue:
-    Type: AWS::CloudFormation::CustomResource
-    Condition: FsxPostTGPvcWithQuotaWithKueueCondition
-    DependsOn:
-      - FsxStack
-      - TaskGovernanceComputeQuotaStack
-      - KueueAzPlacementResourcesStack
-    Properties:
-      ServiceToken:
-        Fn::GetAtt:
-          - FsxStack
-          - Outputs.FsxCustomResourceFunctionArn
-      Action: CreatePVCs
-      CreateNamespaces: false
-      TargetNamespaces:
-        Fn::Sub: ${UserNamespaces},${CustomUserNamespaces}
-    Metadata:
-      aws:cdk:path: MainEksBasedCfnTemplate/FsxPvcPostTGWithQuotaWithKueue
-
   FsxPvcPostTGWithQuotaNoKueue:
     Type: AWS::CloudFormation::CustomResource
     Condition: FsxPostTGPvcWithQuotaNoKueueCondition
@@ -3001,24 +2706,6 @@ Resources:
         Fn::Sub: ${UserNamespaces},${CustomUserNamespaces}
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/FsxPvcPostTGWithQuotaNoKueue
-
-  FsxPvcPostTGNoQuotaWithKueue:
-    Type: AWS::CloudFormation::CustomResource
-    Condition: FsxPostTGPvcNoQuotaWithKueueCondition
-    DependsOn:
-      - FsxStack
-      - KueueAzPlacementResourcesStack
-    Properties:
-      ServiceToken:
-        Fn::GetAtt:
-          - FsxStack
-          - Outputs.FsxCustomResourceFunctionArn
-      Action: CreatePVCs
-      CreateNamespaces: false
-      TargetNamespaces:
-        Fn::Sub: ${UserNamespaces},${CustomUserNamespaces}
-    Metadata:
-      aws:cdk:path: MainEksBasedCfnTemplate/FsxPvcPostTGNoQuotaWithKueue
 
   FsxPvcPostTGNoQuotaNoKueue:
     Type: AWS::CloudFormation::CustomResource
@@ -3171,22 +2858,6 @@ Resources:
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/FsxWritableDirBootstrapFunction
 
-  FsxWritableDirBootstrapWithQuotaWithKueue:
-    Type: AWS::CloudFormation::CustomResource
-    Condition: FsxBootstrapWithQuotaWithKueueCondition
-    DependsOn:
-      - FsxPvcPostTGWithQuotaWithKueue
-      - HyperPodClusterStack
-      - FsxWritableDirBootstrapFunction
-    Properties:
-      ServiceToken:
-        Fn::GetAtt:
-          - FsxWritableDirBootstrapFunction
-          - Arn
-      Action: BootstrapWritableSubdir
-    Metadata:
-      aws:cdk:path: MainEksBasedCfnTemplate/FsxWritableDirBootstrapWithQuotaWithKueue
-
   FsxWritableDirBootstrapWithQuotaNoKueue:
     Type: AWS::CloudFormation::CustomResource
     Condition: FsxBootstrapWithQuotaNoKueueCondition
@@ -3202,22 +2873,6 @@ Resources:
       Action: BootstrapWritableSubdir
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/FsxWritableDirBootstrapWithQuotaNoKueue
-
-  FsxWritableDirBootstrapNoQuotaWithKueue:
-    Type: AWS::CloudFormation::CustomResource
-    Condition: FsxBootstrapNoQuotaWithKueueCondition
-    DependsOn:
-      - FsxPvcPostTGNoQuotaWithKueue
-      - HyperPodClusterStack
-      - FsxWritableDirBootstrapFunction
-    Properties:
-      ServiceToken:
-        Fn::GetAtt:
-          - FsxWritableDirBootstrapFunction
-          - Arn
-      Action: BootstrapWritableSubdir
-    Metadata:
-      aws:cdk:path: MainEksBasedCfnTemplate/FsxWritableDirBootstrapNoQuotaWithKueue
 
   FsxWritableDirBootstrapNoQuotaNoKueue:
     Type: AWS::CloudFormation::CustomResource
@@ -3254,28 +2909,6 @@ Resources:
   # =============================================================================
   # FSX ROOT SQUASH (post-bootstrap)
   # =============================================================================
-  FsxRootSquashAfterBootstrapWithQuotaWithKueue:
-    Type: AWS::CloudFormation::CustomResource
-    Condition: FsxRootSquashAfterBootstrapWithQuotaWithKueueCondition
-    DependsOn:
-      - FsxWritableDirBootstrapWithQuotaWithKueue
-    Properties:
-      ServiceToken:
-        Fn::GetAtt:
-          - FsxStack
-          - Outputs.FsxCustomResourceFunctionArn
-      Action: UpdateRootSquash
-      FsxFileSystemId:
-        Fn::GetAtt:
-          - FsxStack
-          - Outputs.FsxFileSystemId
-      RootSquashUidGid:
-        Ref: FsxRootSquashUidGid
-      NoSquashNids:
-        Ref: FsxNoSquashNids
-    Metadata:
-      aws:cdk:path: MainEksBasedCfnTemplate/FsxRootSquashAfterBootstrapWithQuotaWithKueue
-
   FsxRootSquashAfterBootstrapWithQuotaNoKueue:
     Type: AWS::CloudFormation::CustomResource
     Condition: FsxRootSquashAfterBootstrapWithQuotaNoKueueCondition
@@ -3297,28 +2930,6 @@ Resources:
         Ref: FsxNoSquashNids
     Metadata:
       aws:cdk:path: MainEksBasedCfnTemplate/FsxRootSquashAfterBootstrapWithQuotaNoKueue
-
-  FsxRootSquashAfterBootstrapNoQuotaWithKueue:
-    Type: AWS::CloudFormation::CustomResource
-    Condition: FsxRootSquashAfterBootstrapNoQuotaWithKueueCondition
-    DependsOn:
-      - FsxWritableDirBootstrapNoQuotaWithKueue
-    Properties:
-      ServiceToken:
-        Fn::GetAtt:
-          - FsxStack
-          - Outputs.FsxCustomResourceFunctionArn
-      Action: UpdateRootSquash
-      FsxFileSystemId:
-        Fn::GetAtt:
-          - FsxStack
-          - Outputs.FsxFileSystemId
-      RootSquashUidGid:
-        Ref: FsxRootSquashUidGid
-      NoSquashNids:
-        Ref: FsxNoSquashNids
-    Metadata:
-      aws:cdk:path: MainEksBasedCfnTemplate/FsxRootSquashAfterBootstrapNoQuotaWithKueue
 
   FsxRootSquashAfterBootstrapNoQuotaNoKueue:
     Type: AWS::CloudFormation::CustomResource

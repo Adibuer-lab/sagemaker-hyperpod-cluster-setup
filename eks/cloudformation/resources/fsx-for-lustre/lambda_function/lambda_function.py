@@ -11,6 +11,7 @@ import yaml
 
 FSX_BOOTSTRAP_IMAGE = os.environ.get("FSX_BOOTSTRAP_IMAGE", "public.ecr.aws/docker/library/busybox:1.36")
 KUBECTL_REQUEST_TIMEOUT = os.environ.get("KUBECTL_REQUEST_TIMEOUT", "20s")
+TG_NAMESPACE_PREFIX = "hyperpod-ns-"
 
 
 def _kubectl(args, *, input_text=None, check=True, timeout_seconds=60):
@@ -817,7 +818,7 @@ parameters:
             
             print(f"\nCreating PV and PVC for namespace {namespace}...")
             
-            # Ensure namespace exists (or fail fast if creation disabled)
+            # Ensure namespace exists (or fail fast if creation disabled for TG namespaces)
             if create_namespaces:
                 try:
                     _kubectl(["create", "namespace", namespace, "--dry-run=client", "-o", "yaml"], timeout_seconds=60)
@@ -827,7 +828,15 @@ parameters:
                     pass  # Namespace may already exist
             else:
                 if not _namespace_exists(namespace):
-                    raise Exception(f"Namespace {namespace} does not exist; create it before FSx PVCs")
+                    if namespace.startswith(TG_NAMESPACE_PREFIX):
+                        raise Exception(f"Namespace {namespace} does not exist; create it before FSx PVCs")
+                    try:
+                        _kubectl(["create", "namespace", namespace, "--dry-run=client", "-o", "yaml"], timeout_seconds=60)
+                        ns_yaml = f'apiVersion: v1\nkind: Namespace\nmetadata:\n  name: {namespace}\n'
+                        _kubectl(["apply", "-f", "-"], input_text=ns_yaml, timeout_seconds=60)
+                        print(f"Created namespace: {namespace}")
+                    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                        print(f"Warning: Failed to create namespace {namespace}")
             
             # Create namespace-specific PV pointing to the same FSx filesystem
             ns_pv_content = f"""apiVersion: v1
