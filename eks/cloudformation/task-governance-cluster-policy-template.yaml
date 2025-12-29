@@ -31,6 +31,10 @@ Parameters:
   StepFunctionDelaySeconds:
     Type: Number
     Default: 60
+  SchedulerConfigRevision:
+    Type: String
+    Default: "0"
+    Description: Bump to force ClusterSchedulerConfig custom resource update
 Conditions:
   TaskGovernanceAddonVersionProvided:
     Fn::Not:
@@ -366,9 +370,10 @@ Resources:
         Ref: EKSClusterName
       Name:
         Fn::Sub: ${EKSClusterName}-scheduler-config
-      Description: >-
-        Cluster configuration policy to streamline priority for tasks and idle compute management with first-come,
-        first-served allocation for idle compute
+      Description:
+        Fn::Sub: >-
+          Cluster configuration policy to streamline priority for tasks and idle compute management with first-come,
+          first-served allocation for idle compute (revision ${SchedulerConfigRevision})
       SchedulerConfig:
         FairShare: Disabled
         PriorityClasses:
