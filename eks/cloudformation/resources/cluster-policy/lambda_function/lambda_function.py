@@ -18,6 +18,14 @@ KUEUE_WEBHOOK_PORT = 9443
 TASK_GOV_ADDON_NAME = "amazon-sagemaker-hyperpod-taskgovernance"
 
 
+def _is_truthy(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "y")
+    return bool(value)
+
+
 def _run(cmd, input_text=None, timeout=120):
     logger.info("Running: %s", " ".join(cmd))
     result = subprocess.run(
@@ -264,6 +272,18 @@ def _kueue_api_ready():
     return True, "Kueue API ready", api_version
 
 
+def _list_workload_priority_classes():
+    raw = _run(["kubectl", "get", "workloadpriorityclass", "-A", "-o", "json"], timeout=30)
+    data = json.loads(raw)
+    items = data.get("items", []) or []
+    names = []
+    for item in items:
+        name = (item.get("metadata") or {}).get("name")
+        if name:
+            names.append(name)
+    return names
+
+
 def _normalize_scheduler_config(config):
     if "PriorityClasses" not in config:
         return config
@@ -312,6 +332,17 @@ def _wait_for_scheduler_config_ready(sm, config_id, timeout_seconds=600, poll_se
         last_status = status
         time.sleep(poll_seconds)
     return None, last_status or "TIMEOUT", "Timed out waiting for scheduler config to become ready"
+
+
+def _wait_for_scheduler_config_deleted(sm, config_id, timeout_seconds=300, poll_seconds=10):
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        try:
+            sm.describe_cluster_scheduler_config(ClusterSchedulerConfigId=config_id)
+        except sm.exceptions.ResourceNotFound:
+            return True
+        time.sleep(poll_seconds)
+    return False
 
 
 def _get_scheduler_config_version(sm, config_id):
@@ -363,6 +394,7 @@ def handler(event, context):
     description = props.get("Description") or "HyperPod cluster scheduler configuration"
     eks_cluster_name = props.get("EKSClusterName") or os.environ.get("EKS_CLUSTER_NAME", "")
     region = os.environ.get("AWS_REGION", "us-east-1")
+    verify_only = _is_truthy(event.get("VerifyOnly") or props.get("VerifyOnly") or False)
 
     if not cluster_arn or not config_name:
         return _build_response(
@@ -422,6 +454,114 @@ def handler(event, context):
 
     try:
         existing = _find_scheduler_config_by_name(sagemaker, cluster_arn, config_name)
+        if verify_only:
+            if not existing:
+                return _build_response(
+                    "NOT_READY",
+                    "Scheduler config not found yet",
+                    {},
+                    next_attempt,
+                    max_attempts,
+                    delay_seconds,
+                )
+            status = (existing.get("Status") or "").upper()
+            failure_reason = existing.get("FailureReason") or ""
+            if status in ("CREATE_FAILED", "UPDATE_FAILED"):
+                return _build_response(
+                    "FAILED",
+                    f"Scheduler config {status}: {failure_reason}",
+                    {},
+                    next_attempt,
+                    max_attempts,
+                    delay_seconds,
+                )
+            if status in ("CREATING", "UPDATING", "DELETING") or not status:
+                return _build_response(
+                    "NOT_READY",
+                    f"Scheduler config status is {status or 'UNKNOWN'}",
+                    {},
+                    next_attempt,
+                    max_attempts,
+                    delay_seconds,
+                )
+            try:
+                wpc_names = _list_workload_priority_classes()
+            except Exception as exc:
+                return _build_response(
+                    "NOT_READY",
+                    f"WorkloadPriorityClasses not ready: {exc}",
+                    {},
+                    next_attempt,
+                    max_attempts,
+                    delay_seconds,
+                )
+            expected_count = len((scheduler_config or {}).get("PriorityClasses") or [])
+            if expected_count and len(wpc_names) < expected_count:
+                return _build_response(
+                    "NOT_READY",
+                    f"WorkloadPriorityClasses not ready (expected {expected_count}, found {len(wpc_names)})",
+                    {},
+                    next_attempt,
+                    max_attempts,
+                    delay_seconds,
+                )
+            if not wpc_names:
+                return _build_response(
+                    "NOT_READY",
+                    "WorkloadPriorityClasses not found yet",
+                    {},
+                    next_attempt,
+                    max_attempts,
+                    delay_seconds,
+                )
+            data = {
+                "ClusterSchedulerConfigStatus": status,
+                "WorkloadPriorityClassCount": len(wpc_names),
+            }
+            return _build_response(
+                "SUCCESS",
+                "Scheduler config verified",
+                data,
+                next_attempt,
+                max_attempts,
+                delay_seconds,
+            )
+
+        if existing:
+            existing_status = (existing.get("Status") or "").upper()
+            failure_reason = existing.get("FailureReason") or ""
+            config_id = existing.get("ClusterSchedulerConfigId")
+            if existing_status in ("CREATE_FAILED", "UPDATE_FAILED"):
+                if config_id:
+                    logger.info(
+                        "Scheduler config %s in %s (%s); deleting and recreating.",
+                        config_id,
+                        existing_status,
+                        failure_reason,
+                    )
+                    sagemaker.delete_cluster_scheduler_config(
+                        ClusterSchedulerConfigId=config_id
+                    )
+                    deleted = _wait_for_scheduler_config_deleted(sagemaker, config_id)
+                    if not deleted:
+                        return _build_response(
+                            "NOT_READY",
+                            "Timed out waiting for scheduler config deletion",
+                            {},
+                            next_attempt,
+                            max_attempts,
+                            delay_seconds,
+                        )
+                existing = None
+            elif existing_status in ("CREATING", "UPDATING", "DELETING"):
+                return _build_response(
+                    "NOT_READY",
+                    f"Scheduler config status is {existing_status}; retry later",
+                    {},
+                    next_attempt,
+                    max_attempts,
+                    delay_seconds,
+                )
         config_id = None
         config_arn = None
 

@@ -31,6 +31,10 @@ Parameters:
   StepFunctionDelaySeconds:
     Type: Number
     Default: 60
+  PostSuccessDelaySeconds:
+    Type: Number
+    Default: 180
+    Description: Wait time before post-success verification (seconds)
   SchedulerConfigRevision:
     Type: String
     Default: "0"
@@ -193,9 +197,22 @@ Resources:
                   "Type": "Choice",
                   "Choices": [
                     {
+                      "And": [
+                        {
+                          "Variable": "$.RequestType",
+                          "StringEquals": "Delete"
+                        },
+                        {
+                          "Variable": "$.Worker.Status",
+                          "StringEquals": "SUCCESS"
+                        }
+                      ],
+                      "Next": "SendSuccess"
+                    },
+                    {
                       "Variable": "$.Worker.Status",
                       "StringEquals": "SUCCESS",
-                      "Next": "SendSuccess"
+                      "Next": "PostSuccessWait"
                     },
                     {
                       "Variable": "$.Worker.Status",
@@ -220,6 +237,84 @@ Resources:
                   "Type": "Wait",
                   "SecondsPath": "$.Worker.DelaySeconds",
                   "Next": "InvokeWorker"
+                },
+                "PostSuccessWait": {
+                  "Type": "Wait",
+                  "Seconds": ${PostSuccessDelaySeconds},
+                  "Next": "VerifyWorker"
+                },
+                "VerifyWorker": {
+                  "Type": "Task",
+                  "Resource": "arn:aws:states:::lambda:invoke",
+                  "Parameters": {
+                    "FunctionName": "${TaskGovernancePolicyLambdaArn}",
+                    "Payload": {
+                      "RequestType.$": "$.RequestType",
+                      "ResponseURL.$": "$.ResponseURL",
+                      "StackId.$": "$.StackId",
+                      "RequestId.$": "$.RequestId",
+                      "LogicalResourceId.$": "$.LogicalResourceId",
+                      "PhysicalResourceId.$": "$.PhysicalResourceId",
+                      "ResourceProperties.$": "$.ResourceProperties",
+                      "OldResourceProperties.$": "$.OldResourceProperties",
+                      "Attempt.$": "$.Worker.Attempt",
+                      "MaxAttempts.$": "$.Worker.MaxAttempts",
+                      "DelaySeconds.$": "$.Worker.DelaySeconds",
+                      "VerifyOnly": true
+                    }
+                  },
+                  "ResultSelector": {
+                    "Status.$": "$.Payload.Status",
+                    "Reason.$": "$.Payload.Reason",
+                    "Data.$": "$.Payload.Data",
+                    "Attempt.$": "$.Payload.Attempt",
+                    "MaxAttempts.$": "$.Payload.MaxAttempts",
+                    "DelaySeconds.$": "$.Payload.DelaySeconds"
+                  },
+                  "ResultPath": "$.Worker",
+                  "Next": "SetAttemptVerify",
+                  "Catch": [
+                    {
+                      "ErrorEquals": ["States.ALL"],
+                      "ResultPath": "$.WorkerError",
+                      "Next": "SendFailureFromException"
+                    }
+                  ]
+                },
+                "SetAttemptVerify": {
+                  "Type": "Pass",
+                  "Parameters": {
+                    "RequestType.$": "$.RequestType",
+                    "ResponseURL.$": "$.ResponseURL",
+                    "StackId.$": "$.StackId",
+                    "RequestId.$": "$.RequestId",
+                    "LogicalResourceId.$": "$.LogicalResourceId",
+                    "PhysicalResourceId.$": "$.PhysicalResourceId",
+                    "ResourceProperties.$": "$.ResourceProperties",
+                    "OldResourceProperties.$": "$.OldResourceProperties",
+                    "Attempt.$": "$.Worker.Attempt",
+                    "MaxAttempts.$": "$.Worker.MaxAttempts",
+                    "DelaySeconds.$": "$.Worker.DelaySeconds",
+                    "Worker.$": "$.Worker"
+                  },
+                  "ResultPath": "$",
+                  "Next": "CheckVerifyStatus"
+                },
+                "CheckVerifyStatus": {
+                  "Type": "Choice",
+                  "Choices": [
+                    {
+                      "Variable": "$.Worker.Status",
+                      "StringEquals": "SUCCESS",
+                      "Next": "SendSuccess"
+                    },
+                    {
+                      "Variable": "$.Worker.Status",
+                      "StringEquals": "NOT_READY",
+                      "Next": "CheckAttempts"
+                    }
+                  ],
+                  "Default": "SendFailure"
                 },
                 "SendSuccess": {
                   "Type": "Task",
