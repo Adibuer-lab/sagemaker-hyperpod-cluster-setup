@@ -314,6 +314,14 @@ def _wait_for_scheduler_config_ready(sm, config_id, timeout_seconds=600, poll_se
     return None, last_status or "TIMEOUT", "Timed out waiting for scheduler config to become ready"
 
 
+def _get_scheduler_config_version(sm, config_id):
+    desc = sm.describe_cluster_scheduler_config(ClusterSchedulerConfigId=config_id)
+    version = desc.get("ClusterSchedulerConfigVersion")
+    if version is None:
+        raise Exception(f"Missing ClusterSchedulerConfigVersion for scheduler config {config_id}")
+    return version
+
+
 def _addon_active(eks_cluster_name, region):
     try:
         eks = boto3.client("eks", region_name=region)
@@ -421,8 +429,10 @@ def handler(event, context):
             config_id = existing.get("ClusterSchedulerConfigId")
             config_arn = existing.get("ClusterSchedulerConfigArn")
             logger.info("Scheduler config already exists, updating: %s", config_id)
+            target_version = _get_scheduler_config_version(sagemaker, config_id)
             sagemaker.update_cluster_scheduler_config(
                 ClusterSchedulerConfigId=config_id,
+                TargetVersion=target_version,
                 SchedulerConfig=scheduler_config,
                 Description=description,
             )
@@ -430,8 +440,10 @@ def handler(event, context):
             config_id = existing.get("ClusterSchedulerConfigId")
             config_arn = existing.get("ClusterSchedulerConfigArn")
             logger.info("Updating scheduler config: %s", config_id)
+            target_version = _get_scheduler_config_version(sagemaker, config_id)
             sagemaker.update_cluster_scheduler_config(
                 ClusterSchedulerConfigId=config_id,
+                TargetVersion=target_version,
                 SchedulerConfig=scheduler_config,
                 Description=description,
             )
