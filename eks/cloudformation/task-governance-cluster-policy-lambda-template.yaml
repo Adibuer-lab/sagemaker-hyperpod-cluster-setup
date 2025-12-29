@@ -62,6 +62,7 @@ Resources:
                 Resource:
                   - Fn::Sub: arn:aws:eks:${AWS::Region}:${AWS::AccountId}:cluster/${EKSClusterName}
                   - Fn::Sub: arn:aws:eks:${AWS::Region}:${AWS::AccountId}:access-entry/${EKSClusterName}/*
+                  - Fn::Sub: arn:aws:eks:${AWS::Region}:${AWS::AccountId}:addon/${EKSClusterName}/*
     Metadata:
       aws:cdk:path: TaskGovernanceClusterPolicyLambdaCfnTemplate/TaskGovernancePolicyLambdaRole
   TaskGovernancePolicyLambdaAccessEntry:
