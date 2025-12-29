@@ -13,6 +13,8 @@ def _build_input(event, physical_id):
         "RequestId": event.get("RequestId"),
         "LogicalResourceId": event.get("LogicalResourceId"),
         "PhysicalResourceId": physical_id,
+        "ResourceProperties": event.get("ResourceProperties") or {},
+        "OldResourceProperties": event.get("OldResourceProperties") or {},
         "Attempt": 0,
         "MaxAttempts": int(os.environ.get("MAX_ATTEMPTS", "45")),
         "DelaySeconds": int(os.environ.get("DELAY_SECONDS", "60")),

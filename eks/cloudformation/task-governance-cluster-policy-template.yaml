@@ -15,6 +15,22 @@ Parameters:
     Description: >-
       Optional. Version of the HyperPod task governance EKS add-on to install. Leave empty to use the latest version
       recommended by Amazon EKS.
+  CustomResourceS3Bucket:
+    Type: String
+    Default: aws-sagemaker-hyperpod-cluster-setup-us-east-2-prod
+    Description: The name of the S3 bucket containing the custom resource.
+  StarterFunctionS3Key:
+    Type: String
+    Default: resources/artifacts/cfn-stepfunction-starter-lambda-function.zip
+  ResponseFunctionS3Key:
+    Type: String
+    Default: resources/artifacts/cfn-response-sender-lambda-function.zip
+  StepFunctionMaxAttempts:
+    Type: Number
+    Default: 45
+  StepFunctionDelaySeconds:
+    Type: Number
+    Default: 60
 Conditions:
   TaskGovernanceAddonVersionProvided:
     Fn::Not:
@@ -36,14 +52,318 @@ Resources:
       ResolveConflicts: OVERWRITE
     Metadata:
       aws:cdk:path: TaskGovernanceClusterPolicyCfnTemplate/TaskGovernanceAddOn
+
+  TaskGovernanceClusterPolicyResponseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: '2012-10-17'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  TaskGovernanceClusterPolicyResponseFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          Ref: CustomResourceS3Bucket
+        S3Key:
+          Ref: ResponseFunctionS3Key
+      FunctionName:
+        Fn::Sub: ${EKSClusterName}-tg-cluster-policy-response
+      Handler: lambda_function.handler
+      Role:
+        Fn::GetAtt:
+          - TaskGovernanceClusterPolicyResponseRole
+          - Arn
+      Runtime: python3.12
+      Timeout: 60
+      MemorySize: 256
+
+  TaskGovernanceClusterPolicyStateMachineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+        Version: '2012-10-17'
+      Policies:
+        - PolicyName: TGClusterPolicyStateMachinePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - Fn::ImportValue:
+                      Fn::Sub: TaskGovernanceAddonLambdaArn-${TaskGovernanceAddonLambdaExportSuffix}
+                  - Fn::GetAtt:
+                      - TaskGovernanceClusterPolicyResponseFunction
+                      - Arn
+
+  TaskGovernanceClusterPolicyStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    DependsOn:
+      - TaskGovernanceClusterPolicyResponseFunction
+    Properties:
+      StateMachineName:
+        Fn::Sub: ${EKSClusterName}-tg-cluster-policy-sfn
+      StateMachineType: STANDARD
+      RoleArn:
+        Fn::GetAtt:
+          - TaskGovernanceClusterPolicyStateMachineRole
+          - Arn
+      DefinitionString:
+        Fn::Sub:
+          - |
+            {
+              "Comment": "Task Governance cluster policy orchestration",
+              "StartAt": "InvokeWorker",
+              "States": {
+                "InvokeWorker": {
+                  "Type": "Task",
+                  "Resource": "arn:aws:states:::lambda:invoke",
+                  "Parameters": {
+                    "FunctionName": "${TaskGovernancePolicyLambdaArn}",
+                    "Payload": {
+                      "RequestType.$": "$.RequestType",
+                      "ResponseURL.$": "$.ResponseURL",
+                      "StackId.$": "$.StackId",
+                      "RequestId.$": "$.RequestId",
+                      "LogicalResourceId.$": "$.LogicalResourceId",
+                      "PhysicalResourceId.$": "$.PhysicalResourceId",
+                      "ResourceProperties.$": "$.ResourceProperties",
+                      "OldResourceProperties.$": "$.OldResourceProperties",
+                      "Attempt.$": "$.Attempt",
+                      "MaxAttempts.$": "$.MaxAttempts",
+                      "DelaySeconds.$": "$.DelaySeconds"
+                    }
+                  },
+                  "ResultSelector": {
+                    "Status.$": "$.Payload.Status",
+                    "Reason.$": "$.Payload.Reason",
+                    "Data.$": "$.Payload.Data",
+                    "Attempt.$": "$.Payload.Attempt",
+                    "MaxAttempts.$": "$.Payload.MaxAttempts",
+                    "DelaySeconds.$": "$.Payload.DelaySeconds"
+                  },
+                  "ResultPath": "$.Worker",
+                  "Next": "SetAttempt",
+                  "Catch": [
+                    {
+                      "ErrorEquals": ["States.ALL"],
+                      "ResultPath": "$.WorkerError",
+                      "Next": "SendFailureFromException"
+                    }
+                  ]
+                },
+                "SetAttempt": {
+                  "Type": "Pass",
+                  "Parameters": {
+                    "RequestType.$": "$.RequestType",
+                    "ResponseURL.$": "$.ResponseURL",
+                    "StackId.$": "$.StackId",
+                    "RequestId.$": "$.RequestId",
+                    "LogicalResourceId.$": "$.LogicalResourceId",
+                    "PhysicalResourceId.$": "$.PhysicalResourceId",
+                    "ResourceProperties.$": "$.ResourceProperties",
+                    "OldResourceProperties.$": "$.OldResourceProperties",
+                    "Attempt.$": "$.Worker.Attempt",
+                    "MaxAttempts.$": "$.Worker.MaxAttempts",
+                    "DelaySeconds.$": "$.Worker.DelaySeconds",
+                    "Worker.$": "$.Worker"
+                  },
+                  "ResultPath": "$",
+                  "Next": "CheckStatus"
+                },
+                "CheckStatus": {
+                  "Type": "Choice",
+                  "Choices": [
+                    {
+                      "Variable": "$.Worker.Status",
+                      "StringEquals": "SUCCESS",
+                      "Next": "SendSuccess"
+                    },
+                    {
+                      "Variable": "$.Worker.Status",
+                      "StringEquals": "NOT_READY",
+                      "Next": "CheckAttempts"
+                    }
+                  ],
+                  "Default": "SendFailure"
+                },
+                "CheckAttempts": {
+                  "Type": "Choice",
+                  "Choices": [
+                    {
+                      "Variable": "$.Worker.Attempt",
+                      "NumericGreaterThanEqualsPath": "$.Worker.MaxAttempts",
+                      "Next": "SendTimeoutFailure"
+                    }
+                  ],
+                  "Default": "WaitBeforeRetry"
+                },
+                "WaitBeforeRetry": {
+                  "Type": "Wait",
+                  "SecondsPath": "$.Worker.DelaySeconds",
+                  "Next": "InvokeWorker"
+                },
+                "SendSuccess": {
+                  "Type": "Task",
+                  "Resource": "arn:aws:states:::lambda:invoke",
+                  "Parameters": {
+                    "FunctionName": "${TaskGovernanceClusterPolicyResponseFunction}",
+                    "Payload": {
+                      "Status": "SUCCESS",
+                      "Reason.$": "$.Worker.Reason",
+                      "Data.$": "$.Worker.Data",
+                      "ResponseURL.$": "$.ResponseURL",
+                      "StackId.$": "$.StackId",
+                      "RequestId.$": "$.RequestId",
+                      "LogicalResourceId.$": "$.LogicalResourceId",
+                      "PhysicalResourceId.$": "$.PhysicalResourceId"
+                    }
+                  },
+                  "End": true
+                },
+                "SendFailure": {
+                  "Type": "Task",
+                  "Resource": "arn:aws:states:::lambda:invoke",
+                  "Parameters": {
+                    "FunctionName": "${TaskGovernanceClusterPolicyResponseFunction}",
+                    "Payload": {
+                      "Status": "FAILED",
+                      "Reason.$": "$.Worker.Reason",
+                      "Data.$": "$.Worker.Data",
+                      "ResponseURL.$": "$.ResponseURL",
+                      "StackId.$": "$.StackId",
+                      "RequestId.$": "$.RequestId",
+                      "LogicalResourceId.$": "$.LogicalResourceId",
+                      "PhysicalResourceId.$": "$.PhysicalResourceId"
+                    }
+                  },
+                  "End": true
+                },
+                "SendTimeoutFailure": {
+                  "Type": "Task",
+                  "Resource": "arn:aws:states:::lambda:invoke",
+                  "Parameters": {
+                    "FunctionName": "${TaskGovernanceClusterPolicyResponseFunction}",
+                    "Payload": {
+                      "Status": "FAILED",
+                      "Reason": "Timed out waiting for Task Governance readiness",
+                      "Data": {
+                        "Error": "Timed out waiting for Task Governance readiness"
+                      },
+                      "ResponseURL.$": "$.ResponseURL",
+                      "StackId.$": "$.StackId",
+                      "RequestId.$": "$.RequestId",
+                      "LogicalResourceId.$": "$.LogicalResourceId",
+                      "PhysicalResourceId.$": "$.PhysicalResourceId"
+                    }
+                  },
+                  "End": true
+                },
+                "SendFailureFromException": {
+                  "Type": "Task",
+                  "Resource": "arn:aws:states:::lambda:invoke",
+                  "Parameters": {
+                    "FunctionName": "${TaskGovernanceClusterPolicyResponseFunction}",
+                    "Payload": {
+                      "Status": "FAILED",
+                      "Reason.$": "$.WorkerError.Cause",
+                      "Data": {
+                        "Error.$": "$.WorkerError.Error"
+                      },
+                      "ResponseURL.$": "$.ResponseURL",
+                      "StackId.$": "$.StackId",
+                      "RequestId.$": "$.RequestId",
+                      "LogicalResourceId.$": "$.LogicalResourceId",
+                      "PhysicalResourceId.$": "$.PhysicalResourceId"
+                    }
+                  },
+                  "End": true
+                }
+              }
+            }
+          - TaskGovernancePolicyLambdaArn:
+              Fn::ImportValue:
+                Fn::Sub: TaskGovernanceAddonLambdaArn-${TaskGovernanceAddonLambdaExportSuffix}
+            TaskGovernanceClusterPolicyResponseFunction:
+              Fn::GetAtt:
+                - TaskGovernanceClusterPolicyResponseFunction
+                - Arn
+
+  TaskGovernanceClusterPolicyStarterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: '2012-10-17'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: TGClusterPolicyStartPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                Resource:
+                  Ref: TaskGovernanceClusterPolicyStateMachine
+
+  TaskGovernanceClusterPolicyStarterFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          Ref: CustomResourceS3Bucket
+        S3Key:
+          Ref: StarterFunctionS3Key
+      Environment:
+        Variables:
+          STATE_MACHINE_ARN:
+            Ref: TaskGovernanceClusterPolicyStateMachine
+          MAX_ATTEMPTS:
+            Ref: StepFunctionMaxAttempts
+          DELAY_SECONDS:
+            Ref: StepFunctionDelaySeconds
+      FunctionName:
+        Fn::Sub: ${EKSClusterName}-tg-cluster-policy-starter
+      Handler: lambda_function.handler
+      Role:
+        Fn::GetAtt:
+          - TaskGovernanceClusterPolicyStarterRole
+          - Arn
+      Runtime: python3.12
+      Timeout: 60
+      MemorySize: 256
+
   ClusterSchedulerConfig:
-    Type: Custom::ClusterSchedulerConfig
+    Type: AWS::CloudFormation::CustomResource
     Properties:
       ServiceToken:
-        Fn::ImportValue:
-          Fn::Sub: TaskGovernanceAddonLambdaArn-${TaskGovernanceAddonLambdaExportSuffix}
+        Fn::GetAtt:
+          - TaskGovernanceClusterPolicyStarterFunction
+          - Arn
       ClusterArn:
         Ref: HyperPodClusterArn
+      EKSClusterName:
+        Ref: EKSClusterName
       Name:
         Fn::Sub: ${EKSClusterName}-scheduler-config
       Description: >-
@@ -64,6 +384,7 @@ Resources:
             Weight: 60
     DependsOn:
       - TaskGovernanceAddOn
+      - TaskGovernanceClusterPolicyStateMachine
     Metadata:
       aws:cdk:path: TaskGovernanceClusterPolicyCfnTemplate/ClusterSchedulerConfig
 Outputs:

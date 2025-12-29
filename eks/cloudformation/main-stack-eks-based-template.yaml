@@ -2469,6 +2469,11 @@ Resources:
             - Fn::Sub: arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:cluster/${HyperPodClusterName}
         TaskGovernanceAddonVersion:
           Ref: TaskGovernanceAddonVersion
+        CustomResourceS3Bucket:
+          Fn::If:
+            - CustomBucketCondition
+            - Ref: CustomBucketName
+            - Fn::Sub: aws-sagemaker-hyperpod-cluster-setup-${AWS::Region}-${Stage}
     DependsOn:
       - EKSClusterStack
       - HyperPodClusterStack
