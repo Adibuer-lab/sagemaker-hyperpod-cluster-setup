@@ -13,6 +13,10 @@ Parameters:
       - gamma
       - prod
     Description: Deployment stage (gamma, prod)
+  LambdaRevision:
+    Type: String
+    Default: "0"
+    Description: Bump to force Lambda configuration update
   CustomResourceS3Bucket:
     Type: String
     Default: aws-sagemaker-hyperpod-cluster-setup-us-east-2-prod
@@ -116,6 +120,8 @@ Resources:
         Variables:
           EKS_CLUSTER_NAME:
             Ref: EKSClusterName
+          LAMBDA_REVISION:
+            Ref: LambdaRevision
           PATH: /opt/python/bin:/var/lang/bin:/usr/local/bin:/usr/bin/:/bin
           KUBECONFIG: /tmp/.kube/config
           LD_LIBRARY_PATH: /opt/python/lib
