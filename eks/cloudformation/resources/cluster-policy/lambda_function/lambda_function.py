@@ -514,7 +514,28 @@ def handler(event, context):
                     max_attempts,
                     delay_seconds,
                 )
+            config_id = existing.get("ClusterSchedulerConfigId")
+            config_arn = existing.get("ClusterSchedulerConfigArn")
+            if config_id and not config_arn:
+                try:
+                    desc = sagemaker.describe_cluster_scheduler_config(
+                        ClusterSchedulerConfigId=config_id
+                    )
+                    config_arn = desc.get("ClusterSchedulerConfigArn") or config_arn
+                except Exception as exc:
+                    logger.info("Describe scheduler config failed during verify: %s", exc)
+            if not config_id or not config_arn:
+                return _build_response(
+                    "NOT_READY",
+                    "Scheduler config identifiers not available yet",
+                    {},
+                    next_attempt,
+                    max_attempts,
+                    delay_seconds,
+                )
             data = {
+                "ClusterSchedulerConfigArn": config_arn,
+                "ClusterSchedulerConfigId": config_id,
                 "ClusterSchedulerConfigStatus": status,
                 "WorkloadPriorityClassCount": len(wpc_names),
             }
